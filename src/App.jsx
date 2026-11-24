@@ -1,1359 +1,1776 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { QRCodeSVG } from 'qrcode.react';
+import {
+  Volume2,
+  VolumeX,
+  ScrollText,
+  RotateCcw,
+  Home,
+  X,
+  Plus,
+  Compass,
+  Tv,
+  Smartphone,
+  Bookmark,
+  ShoppingBag,
+  Trophy,
+  Check,
+} from 'lucide-react';
+import {
+  SplendorEmblem,
+  FacetedGemSvg,
+  PokerChipStack3D,
+  SteamDeckStack3D,
+  DevelopmentCard,
+  NobleTile,
+  OpponentPortraitPlaque,
+  GemChip,
+} from './components/SplendorVisuals';
+import {
+  GEM_META,
+  GEM_COLORS,
+  ALL_GEM_COLORS,
+  STEAM_TOKEN_ORDER,
+  PORTRAITS,
+  getPlayerPortrait,
+} from './utils/gemMeta';
+import {
+  playChipClink,
+  playCardBuy,
+  playCardReserve,
+  playCardDeal,
+  playTurnBell,
+  playNobleFanfare,
+} from './utils/soundFx';
+import { diffGameStates } from './utils/gameEffects';
+import { VelvetAmbience, TabletopEffectsLayer } from './components/TabletopEffects';
 
-// Connect to socket server
-const SOCKET_URL = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin;
-const socket = io(SOCKET_URL);
+const socket = io();
 
-// Helper to get or generate player ID
-function getOrGeneratePlayerId() {
+function getCenterRect(selector) {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: r };
+}
+
+function canAffordCard(player, card) {
+  if (!player || !card || card.id === 'secret') return false;
+  let goldNeeded = 0;
+  for (const color of GEM_COLORS) {
+    const cost = card.cost?.[color] || 0;
+    const discount = player.discounts?.[color] || 0;
+    const net = Math.max(0, cost - discount);
+    const held = player.gems?.[color] || 0;
+    if (held < net) {
+      goldNeeded += net - held;
+    }
+  }
+  return (player.gems?.gold || 0) >= goldNeeded;
+}
+
+function getCardPaymentBreakdown(player, card) {
+  if (!player || !card) return { items: [], goldNeeded: 0, affordable: false };
+  const items = [];
+  let goldNeeded = 0;
+  for (const color of GEM_COLORS) {
+    const raw = card.cost?.[color] || 0;
+    if (raw === 0) continue;
+    const discount = player.discounts?.[color] || 0;
+    const net = Math.max(0, raw - discount);
+    const held = player.gems?.[color] || 0;
+    const shortfall = Math.max(0, net - held);
+    goldNeeded += shortfall;
+    items.push({ color, raw, discount, net, held, shortfall });
+  }
+  const affordable = (player.gems?.gold || 0) >= goldNeeded;
+  return { items, goldNeeded, affordable };
+}
+
+function getInitialRoute() {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  const autostart = params.get('autostart') === '1';
+  if (view === 'tv') return { viewMode: 'tv', autostart: false };
+  if (view === 'player') return { viewMode: 'player', autostart: false };
+  if (view === 'sandbox' || autostart) return { viewMode: 'sandbox', autostart };
+  return { viewMode: 'selector', autostart: false };
+}
+
+function getOrCreatePlayerId() {
   let id = localStorage.getItem('splendor_player_id');
   if (!id) {
-    id = 'player_' + Math.random().toString(36).substr(2, 9);
+    id = `p_${Math.random().toString(36).slice(2, 10)}`;
     localStorage.setItem('splendor_player_id', id);
   }
   return id;
 }
 
-// Gem Symbols Map for visual accessibility
-const GEM_SYMBOLS = {
-  white: '♢',
-  blue: '▲',
-  green: '⬡',
-  red: '◆',
-  black: '●',
-  gold: '★'
-};
-
-// Safe Vibration API helper
-const triggerVibrate = (pattern) => {
-  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-    try {
-      navigator.vibrate(pattern);
-    } catch (e) {
-      console.warn('Vibration failed', e);
-    }
-  }
-};
-
-// Thematic Renaissance illustration styles for cards
-const getCardStyle = (card) => {
-  if (!card || card.id === 'secret') return {};
-  
-  let bgImg = '';
-  if (card.level === 1) {
-    bgImg = ['white', 'green'].includes(card.color) ? '/images/mine.jpg' : '/images/caravan.jpg';
-  } else if (card.level === 2) {
-    bgImg = ['white', 'blue', 'green'].includes(card.color) ? '/images/ship.jpg' : '/images/gem_cutter.jpg';
-  } else if (card.level === 3) {
-    bgImg = '/images/jewelry_shop.jpg';
-  }
-  
-  return {
-    backgroundImage: `linear-gradient(rgba(10, 15, 25, 0.15), rgba(10, 15, 25, 0.4)), url(${bgImg})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center'
-  };
-};
-
-// Thematic Renaissance portrait style for nobles
-const getNobleStyle = (noble) => {
-  if (!noble) return {};
-  return {
-    backgroundImage: `linear-gradient(rgba(10, 15, 25, 0.1), rgba(10, 15, 25, 0.3)), url(/images/noble.jpg)`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center'
-  };
-};
-
 export default function App() {
-  const [view, setView] = useState(null); // 'tv' or 'player'
+  const initialRoute = getInitialRoute();
+  const [viewMode, setViewMode] = useState(initialRoute.viewMode);
+  const [setupTab, setSetupTab] = useState('pve'); // 'pve' | 'spec' | 'local'
+  const [setupCount, setSetupCount] = useState(3); // 3 | 4
+  const [playerName, setPlayerName] = useState(
+    () => localStorage.getItem('splendor_player_name') || '베네치아 상인'
+  );
+  const [playerId] = useState(() => getOrCreatePlayerId());
+  const [sandboxMode, setSandboxMode] = useState('pve'); // 'pve' | 'spec'
+
   const [gameState, setGameState] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
-  const [playerId] = useState(getOrGeneratePlayerId());
-  const [playerName, setPlayerName] = useState(localStorage.getItem('splendor_player_name') || '');
-  const [sandboxActivePlayerId, setSandboxActivePlayerId] = useState(null);
-  const [activeTab, setActiveTab] = useState('board'); // 'board', 'gems', 'hand'
-  const [selectedGems, setSelectedGems] = useState([]); // for taking gems
-  const [selectedCardForModal, setSelectedCardForModal] = useState(null);
-  const [gemReturnCounts, setGemReturnCounts] = useState({
-    white: 0, blue: 0, green: 0, red: 0, black: 0, gold: 0
+  const [toastMsg, setToastMsg] = useState(null);
+  const [muted, setMuted] = useState(false);
+
+  // Tabletop interactive state
+  const [selectedGems, setSelectedGems] = useState([]);
+  const [inspectCard, setInspectCard] = useState(null); // { card, fromReserved }
+  const [showChronicle, setShowChronicle] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [inspectedPlayerId, setInspectedPlayerId] = useState(null);
+
+  // Excess gem return state
+  const [returnSelection, setReturnSelection] = useState({
+    white: 0,
+    blue: 0,
+    green: 0,
+    red: 0,
+    black: 0,
+    gold: 0,
   });
-  const [toastLog, setToastLog] = useState(null);
-  const [sandboxMode, setSandboxMode] = useState('pve'); // 'pve' or 'spec'
-  const [sandboxCount, setSandboxCount] = useState(3); // 3 or 4
-  const activeId = view === 'sandbox' ? sandboxActivePlayerId : playerId;
 
-  // Check URL query parameters for initial view setup
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('view');
-    if (mode === 'tv') {
-      setView('tv');
-      socket.emit('register-tv');
-    } else if (mode === 'player') {
-      setView('player');
-    } else if (mode === 'sandbox') {
-      setView('sandbox');
-      socket.emit('register-sandbox');
-      setSandboxActivePlayerId('sandbox_p1');
-    }
-  }, []);
+  // Mobile controller tabs
+  const [mobileTab, setMobileTab] = useState('gems');
 
-  // Listen to game state updates
+  // Dynamic tabletop FX state
+  const [flyingChips, setFlyingChips] = useState([]);
+  const [flyingCards, setFlyingCards] = useState([]);
+  const [sparkles, setSparkles] = useState([]);
+  const [scorePops, setScorePops] = useState([]);
+  const [newlyDealtIds, setNewlyDealtIds] = useState([]);
+  const [playerWhispers, setPlayerWhispers] = useState({});
+  const [scorePulseIds, setScorePulseIds] = useState([]);
+  const [fxBanner, setFxBanner] = useState(null);
+
+  const autostartRanRef = useRef(false);
+  const toastTimerRef = useRef(null);
+  const prevStateRef = useRef(null);
+  const mutedRef = useRef(muted);
+  const playerIdRef = useRef(playerId);
+  const fxSeqRef = useRef(0);
+  const fxTimersRef = useRef(new Set());
+
   useEffect(() => {
-    socket.on('state-update', (state) => {
-      const targetId = view === 'sandbox' ? sandboxActivePlayerId : playerId;
-      // Trigger long vibration (100ms) when a player's turn starts
-      setGameState((prevState) => {
-        if (view === 'player' || view === 'sandbox') {
-          const wasMyTurn = prevState && prevState.status === 'playing' && prevState.players[prevState.currentPlayerIndex]?.id === targetId;
-          const isNowMyTurn = state.status === 'playing' && state.players[state.currentPlayerIndex]?.id === targetId;
-          if (isNowMyTurn && !wasMyTurn) {
-            triggerVibrate(100);
+    mutedRef.current = muted;
+  }, [muted]);
+
+  const scheduleFxCleanup = (fn, ms) => {
+    const t = setTimeout(() => {
+      fxTimersRef.current.delete(t);
+      fn();
+    }, ms);
+    fxTimersRef.current.add(t);
+  };
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3200);
+  };
+
+  // Socket subscriptions + live state-diff tabletop FX trigger
+  useEffect(() => {
+    const nextId = () => {
+      fxSeqRef.current += 1;
+      return `fx_${fxSeqRef.current}`;
+    };
+
+    const resolvePlayerTarget = (pid, gemColor = null, forReserved = false) => {
+      const dockEl = document.querySelector(`[data-dock-merchant="${pid}"]`);
+      if (dockEl) {
+        if (forReserved) {
+          const res = getCenterRect('[data-dock-reserved="true"]');
+          if (res) return res;
+        }
+        if (gemColor === 'gold') {
+          const g = getCenterRect('[data-dock-gold="true"]');
+          if (g) return g;
+        } else if (gemColor) {
+          const c = getCenterRect(`[data-dock-color="${gemColor}"]`);
+          if (c) return c;
+        }
+        const r = dockEl.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: r };
+      }
+      return getCenterRect(`[data-player-plaque="${pid}"]`);
+    };
+
+    const spawnSparkleAt = (x, y, color = 'gold', delayMs = 0, scale = 1) => {
+      const spId = nextId();
+      const emit = () => {
+        setSparkles((prev) => [...prev, { id: spId, x, y, color, scale }]);
+        scheduleFxCleanup(() => {
+          setSparkles((prev) => prev.filter((s) => s.id !== spId));
+        }, 1050);
+      };
+      if (delayMs > 0) {
+        scheduleFxCleanup(emit, delayMs);
+      } else {
+        emit();
+      }
+    };
+
+    const onStateUpdate = (state) => {
+      const prev = prevStateRef.current;
+      prevStateRef.current = state;
+
+      if (prev && prev.status === 'playing' && state.status !== 'lobby') {
+        const fx = diffGameStates(prev, state);
+        const isMuted = mutedRef.current;
+        const myId = playerIdRef.current;
+
+        // 1. Flying 3D poker chips: Bank -> Player (longer silky parabolic arc + gem starlight)
+        const newChips = [];
+        fx.takenGems.forEach(({ playerId: pid, colors }) => {
+          const isAiActor = state.players?.find((p) => p.id === pid)?.isAi;
+          colors.forEach((color, idx) => {
+            const from = getCenterRect(`[data-gem-bank="${color}"]`);
+            const to = resolvePlayerTarget(pid, color, false);
+            if (from && to) {
+              const id = nextId();
+              const delayMs = idx * 115;
+              newChips.push({
+                id,
+                color,
+                fromX: from.x,
+                fromY: from.y,
+                toX: to.x,
+                toY: to.y,
+                arcY: -86 - (idx % 2) * 32,
+                delayMs,
+              });
+              spawnSparkleAt(from.x, from.y, color, delayMs, 0.72);
+              spawnSparkleAt(to.x, to.y, color, delayMs + 760, 1.05);
+              if (isAiActor) {
+                scheduleFxCleanup(() => playChipClink(isMuted, idx, 0.44), delayMs + 50);
+              }
+            }
+          });
+        });
+
+        // 2. Spent chips flying back: Player -> Bank (when purchasing a card)
+        fx.returnedGems.forEach(({ playerId: pid, colors }) => {
+          colors.slice(0, 5).forEach((color, idx) => {
+            const from = resolvePlayerTarget(pid, color, false);
+            const to = getCenterRect(`[data-gem-bank="${color}"]`);
+            if (from && to) {
+              const delayMs = idx * 75;
+              newChips.push({
+                id: nextId(),
+                color,
+                fromX: from.x,
+                fromY: from.y,
+                toX: to.x,
+                toY: to.y,
+                arcY: -64,
+                delayMs,
+              });
+              spawnSparkleAt(to.x, to.y, color, delayMs + 760, 0.85);
+            }
+          });
+        });
+
+        if (newChips.length > 0) {
+          const ids = new Set(newChips.map((c) => c.id));
+          setFlyingChips((curr) => [...curr, ...newChips]);
+          scheduleFxCleanup(() => {
+            setFlyingChips((curr) => curr.filter((c) => !ids.has(c.id)));
+          }, 1350);
+        }
+
+        // 3. Flying card clone when bought or reserved from board (smooth 0.92s glide + double starlight)
+        const newCards = [];
+        const removedOrigins = [];
+        fx.boardRemovals.forEach(({ card, actorId, action }) => {
+          const from = getCenterRect(`[data-card-id="${card.id}"]`);
+          const to = actorId
+            ? resolvePlayerTarget(actorId, card.color, action === 'reserve')
+            : null;
+          if (from && to) {
+            const id = nextId();
+            newCards.push({
+              id,
+              card,
+              action,
+              fromX: from.rect.left,
+              fromY: from.rect.top,
+              width: from.rect.width,
+              height: from.rect.height,
+              toX: to.x - from.rect.width / 2,
+              toY: to.y - from.rect.height / 2,
+            });
+            removedOrigins.push({ x: from.x, y: from.y, color: card.color });
+            // Origin shimmer burst + lush destination magic burst
+            spawnSparkleAt(from.x, from.y, action === 'reserve' ? 'gold' : card.color, 0, 1.0);
+            spawnSparkleAt(to.x, to.y, action === 'reserve' ? 'gold' : card.color, 740, 1.25);
+
+            const isAiActor = state.players?.find((p) => p.id === actorId)?.isAi;
+            if (isAiActor) {
+              if (action === 'reserve') playCardReserve(isMuted, 0.52);
+              else playCardBuy(isMuted, 0.52);
+            }
+          }
+        });
+
+        if (newCards.length > 0) {
+          const ids = new Set(newCards.map((c) => c.id));
+          setFlyingCards((curr) => [...curr, ...newCards]);
+          scheduleFxCleanup(() => {
+            setFlyingCards((curr) => curr.filter((c) => !ids.has(c.id)));
+          }, 1080);
+        }
+
+        // 4. Newly dealt replacement cards perform long smooth 1.18s 3D card flip from deck
+        if (fx.dealtCardIds.length > 0) {
+          const dealtSet = new Set(fx.dealtCardIds);
+          scheduleFxCleanup(() => playCardDeal(isMuted, 0.72), 180);
+          setNewlyDealtIds((curr) => [...new Set([...curr, ...fx.dealtCardIds])]);
+          // Soft champagne starlight burst right as the flipped card lands face-up
+          removedOrigins.forEach((orig) => {
+            spawnSparkleAt(orig.x, orig.y, 'gold', 960, 0.92);
+          });
+          scheduleFxCleanup(() => {
+            setNewlyDealtIds((curr) => curr.filter((id) => !dealtSet.has(id)));
+          }, 1360);
+        }
+
+        // 5. Floating golden prestige +N popups & score medal bounce
+        if (fx.scoreGains.length > 0) {
+          const pops = [];
+          const pulsed = [];
+          fx.scoreGains.forEach(({ playerId: pid, delta }) => {
+            pulsed.push(pid);
+            const medalPos =
+              getCenterRect(`[data-dock-merchant="${pid}"] .prestige-medal`) ||
+              getCenterRect(`[data-player-plaque="${pid}"] .prestige-medal`);
+            if (medalPos) {
+              pops.push({ id: nextId(), x: medalPos.x, y: medalPos.y - 14, delta });
+              spawnSparkleAt(medalPos.x, medalPos.y, 'gold', 60, 1.3);
+            }
+          });
+          if (pops.length > 0) {
+            const popIds = new Set(pops.map((p) => p.id));
+            setScorePops((curr) => [...curr, ...pops]);
+            scheduleFxCleanup(() => {
+              setScorePops((curr) => curr.filter((p) => !popIds.has(p.id)));
+            }, 1850);
+          }
+          if (pulsed.length > 0) {
+            const pulsedSet = new Set(pulsed);
+            setScorePulseIds((curr) => [...new Set([...curr, ...pulsed])]);
+            scheduleFxCleanup(() => {
+              setScorePulseIds((curr) => curr.filter((id) => !pulsedSet.has(id)));
+            }, 1150);
           }
         }
-        return state;
-      });
-      setErrorMsg(null);
-      
-      // If we are registered as player/sandbox and our data changed, check if we need to return gems
-      if (view === 'player' || view === 'sandbox') {
-        const targetMe = state.players.find(p => p.id === targetId);
-        if (targetMe && targetMe.requiresGemReturn) {
-          // Initialize return counts
-          setGemReturnCounts({ white: 0, blue: 0, green: 0, red: 0, black: 0, gold: 0 });
+
+        // 6. Noble Visit Royal Fanfare & Banner + Twin Golden Starbursts
+        if (fx.nobleVisits.length > 0) {
+          const visit = fx.nobleVisits[0];
+          playNobleFanfare(isMuted);
+          const bId = nextId();
+          const cleanName = (visit.playerName || '').replace(' (AI)', '');
+          setFxBanner({
+            id: bId,
+            kind: 'noble',
+            text: `귀족 방문 · ${cleanName} (+${visit.noble.points} 승점)`,
+          });
+          spawnSparkleAt(window.innerWidth * 0.42, 68, 'gold', 120, 1.35);
+          spawnSparkleAt(window.innerWidth * 0.58, 68, 'gold', 260, 1.35);
+          scheduleFxCleanup(() => {
+            setFxBanner((curr) => (curr?.id === bId ? null : curr));
+          }, 2850);
+        } else if (
+          fx.turnChangedTo &&
+          !fx.turnChangedTo.isAi &&
+          fx.turnChangedTo.playerId === myId
+        ) {
+          // 7. Gentle Your Turn calligraphic ribbon & bell + warm starlight flourish
+          playTurnBell(isMuted);
+          const bId = nextId();
+          setFxBanner({
+            id: bId,
+            kind: 'turn',
+            text: '당신의 차례',
+          });
+          spawnSparkleAt(window.innerWidth * 0.5, 52, 'gold', 120, 1.05);
+          scheduleFxCleanup(() => {
+            setFxBanner((curr) => (curr?.id === bId ? null : curr));
+          }, 1950);
+        }
+
+        // 8. Opponent action whisper bubble
+        if (fx.actorWhisper && fx.actorWhisper.playerId !== myId) {
+          const { playerId: pid, text } = fx.actorWhisper;
+          setPlayerWhispers((curr) => ({ ...curr, [pid]: text }));
+          scheduleFxCleanup(() => {
+            setPlayerWhispers((curr) => {
+              if (curr[pid] !== text) return curr;
+              const copy = { ...curr };
+              delete copy[pid];
+              return copy;
+            });
+          }, 2600);
         }
       }
-    });
 
-    socket.on('error-message', (msg) => {
-      setErrorMsg(msg);
-      setTimeout(() => setErrorMsg(null), 5000);
-    });
-
-    return () => {
-      socket.off('state-update');
-      socket.off('error-message');
+      setGameState(state);
     };
-  }, [view, playerId, sandboxActivePlayerId]);
 
-  // Toast banner for TV screen (show latest game action log for 2.5s)
+    const onErrorMessage = (msg) => {
+      showToast(msg);
+    };
+    socket.on('state-update', onStateUpdate);
+    socket.on('error-message', onErrorMessage);
+
+    const timers = fxTimersRef.current;
+    return () => {
+      socket.off('state-update', onStateUpdate);
+      socket.off('error-message', onErrorMessage);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
+
+  // Register room when viewMode changes
   useEffect(() => {
-    if (view === 'tv' && gameState && gameState.logs && gameState.logs.length > 0) {
-      const latest = gameState.logs[0];
-      setToastLog(latest);
-      const timer = setTimeout(() => {
-        setToastLog(null);
-      }, 2500);
-      return () => clearTimeout(timer);
+    if (viewMode === 'tv') {
+      socket.emit('register-tv');
+    } else if (viewMode === 'sandbox') {
+      socket.emit('register-sandbox');
     }
-  }, [view, gameState?.logs]);
+  }, [viewMode]);
 
-  // Handle player login
-  const handleJoin = (e) => {
-    e.preventDefault();
-    if (!playerName.trim()) return;
-    localStorage.setItem('splendor_player_name', playerName);
-    setView('player');
-    socket.emit('join-game', { playerId, name: playerName });
+  // Launch sandbox match cleanly (single atomic event)
+  const launchSandboxGame = (mode = setupTab === 'spec' ? 'spec' : 'pve', count = setupCount) => {
+    const cleanName = playerName.trim() || '베네치아 상인';
+    localStorage.setItem('splendor_player_name', cleanName);
+    setSandboxMode(mode);
+    setSelectedGems([]);
+    setInspectCard(null);
+    setConfirmRestart(false);
+    setInspectedPlayerId(null);
+    setViewMode('sandbox');
+    socket.emit('start-sandbox', {
+      mode,
+      count,
+      playerId,
+      playerName: cleanName,
+    });
   };
 
-  // Start game from lobby
-  const handleStartGame = () => {
-    socket.emit('start-game');
-  };
-
-  // Restart game
-  const handleRestartGame = () => {
-    if (window.confirm('Are you sure you want to restart the game?')) {
-      socket.emit('restart-game');
+  // Support ?autostart=1 directly for verification & instant play
+  useEffect(() => {
+    if (initialRoute.autostart && !autostartRanRef.current) {
+      autostartRanRef.current = true;
+      socket.emit('start-sandbox', {
+        mode: 'pve',
+        count: 3,
+        playerId,
+        playerName: playerName.trim() || '베네치아 상인',
+      });
     }
-  };
+  }, [initialRoute.autostart, playerId, playerName]);
 
-  // Start sandbox game and register virtual players/AIs
-  const handleStartSandbox = (mode = 'pve', count = 3) => {
-    // 1. Wipe previous players/sessions from the lobby first
-    socket.emit('test-reset-game');
-    
-    // 2. Join fresh virtual/AI players after a brief delay
-    setTimeout(() => {
-      // Mode can be: 'pve' (Player vs AIs) or 'spec' (AIs spectate)
-      if (mode === 'pve') {
-        const localName = playerName.trim() || '나 (Player)';
-        localStorage.setItem('splendor_player_name', localName);
-        
-        // Join Player 1 (Human)
-        socket.emit('join-game', { playerId, name: localName, isAi: false });
-        // Join Bots based on count
-        if (count === 3) {
-          socket.emit('join-game', { playerId: 'sandbox_ai1', name: 'Bob (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai2', name: 'Charlie (AI)', isAi: true });
-        } else {
-          socket.emit('join-game', { playerId: 'sandbox_ai1', name: 'Bob (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai2', name: 'Charlie (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai3', name: 'Daniel (AI)', isAi: true });
-        }
-        
-        setSandboxActivePlayerId(playerId);
-      } else {
-        // Bots playing against each other
-        if (count === 3) {
-          socket.emit('join-game', { playerId: 'sandbox_ai1', name: 'Alice (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai2', name: 'Bob (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai3', name: 'Charlie (AI)', isAi: true });
-        } else {
-          socket.emit('join-game', { playerId: 'sandbox_ai1', name: 'Alice (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai2', name: 'Bob (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai3', name: 'Charlie (AI)', isAi: true });
-          socket.emit('join-game', { playerId: 'sandbox_ai4', name: 'Daniel (AI)', isAi: true });
-        }
-        
-        setSandboxActivePlayerId('sandbox_ai1');
-      }
-      
-      // 3. Trigger game start shortly after
-      setTimeout(() => {
-        socket.emit('start-game');
-      }, 500);
-    }, 200);
-  };
-
-  // --- ACTIONS ---
-
-  // Select gem for taking
-  const toggleSelectGem = (color) => {
-    if (color === 'gold') return;
-    
-    // Light vibration on selecting a gem token
-    triggerVibrate(10);
-    
-    // Check if we already have 2 of the same color selected
-    const count = selectedGems.filter(c => c === color).length;
-    
-    if (count === 1 && selectedGems.length === 1) {
-      // Allow taking 2 of same color if it's the only type selected
-      setSelectedGems([...selectedGems, color]);
-    } else if (count > 0) {
-      // Remove one instance of the gem (instead of all)
-      const idx = selectedGems.lastIndexOf(color);
-      const newSelected = [...selectedGems];
-      newSelected.splice(idx, 1);
-      setSelectedGems(newSelected);
+  // Sync document.body.dataset.state for crisp state observability
+  useEffect(() => {
+    if (viewMode === 'selector') {
+      document.body.dataset.state = 'title';
+    } else if (gameState?.status === 'finished') {
+      document.body.dataset.state = 'gameover';
+    } else if (gameState?.status === 'playing') {
+      document.body.dataset.state = 'playing';
     } else {
-      // Add gem if we have < 3 and we are not doing a double gem selection
-      const isDouble = selectedGems.length === 2 && selectedGems[0] === selectedGems[1];
-      if (selectedGems.length < 3 && !isDouble) {
-        setSelectedGems([...selectedGems, color]);
-      }
+      document.body.dataset.state = 'lobby';
     }
+  }, [viewMode, gameState?.status]);
+
+  // Keyboard shortcut on Setup screen (Enter/Space launches match when not typing in input)
+  useEffect(() => {
+    if (viewMode !== 'selector' || setupTab === 'local') return;
+    const onKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        launchSandboxGame(setupTab === 'spec' ? 'spec' : 'pve', setupCount);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  // Identify active player and bottom-dock merchant
+  const players = gameState?.players || [];
+  const currentPlayer = players[gameState?.currentPlayerIndex] || null;
+  const humanPlayer = players.find((p) => p.id === playerId) || null;
+  const isHumanTurn =
+    gameState?.status === 'playing' &&
+    Boolean(humanPlayer) &&
+    currentPlayer?.id === humanPlayer.id &&
+    !humanPlayer.isAi &&
+    !humanPlayer.requiresGemReturn;
+
+  const dockMerchant =
+    (viewMode === 'sandbox' && sandboxMode === 'pve' && humanPlayer) ||
+    players.find((p) => p.id === inspectedPlayerId) ||
+    currentPlayer ||
+    players[0] ||
+    null;
+
+  const leftOpponents = players.filter((p) => p.id !== dockMerchant?.id);
+
+  // Gem selection logic (functional update so rapid clicks never race)
+  const handleToggleGemPick = (color) => {
+    if (!isHumanTurn || color === 'gold') return;
+    const bankCount = gameState?.gems?.[color] || 0;
+    if (bankCount <= 0) return;
+
+    playChipClink(muted, selectedGems.length);
+
+    // Immediate gem-matched magic starlight burst right on the clicked poker chip stack
+    const bankPos = getCenterRect(`[data-gem-bank="${color}"]`);
+    if (bankPos) {
+      fxSeqRef.current += 1;
+      const spId = `fx_click_${fxSeqRef.current}`;
+      setSparkles((prev) => [
+        ...prev,
+        { id: spId, x: bankPos.x + 12, y: bankPos.y - 4, color, scale: 0.82 },
+      ]);
+      scheduleFxCleanup(() => {
+        setSparkles((prev) => prev.filter((s) => s.id !== spId));
+      }, 950);
+    }
+
+    setSelectedGems((prev) => {
+      const sameColorCount = prev.filter((c) => c === color).length;
+      const uniqueColors = new Set(prev);
+
+      // If already picked 2 of this color -> clear it
+      if (sameColorCount === 2) {
+        return prev.filter((c) => c !== color);
+      }
+
+      // If picked 1 of this color as the ONLY pick, and bank >= 4 -> upgrade to 2 of same color!
+      if (sameColorCount === 1) {
+        if (prev.length === 1 && bankCount >= 4) {
+          return [color, color];
+        }
+        // Otherwise deselect this color
+        return prev.filter((c) => c !== color);
+      }
+
+      // Currently 0 of this color picked:
+      // If we already have a pair (e.g., [blue, blue]), switch to picking this new color
+      if (prev.length === 2 && uniqueColors.size === 1) {
+        return [color];
+      }
+
+      // Already 3 different colors picked -> ignore (or user can deselect one)
+      if (prev.length >= 3) {
+        return prev;
+      }
+
+      return [...prev, color];
+    });
   };
 
-  // Submit gem taking action
-  const handleConfirmGems = () => {
+  const removePickedGemAt = (idx) => {
+    playChipClink(muted, -1);
+    setSelectedGems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const canSubmitGemPick = (() => {
+    if (!isHumanTurn || selectedGems.length === 0) return false;
     if (selectedGems.length === 2 && selectedGems[0] === selectedGems[1]) {
-      socket.emit('take-two-gems', { playerId: activeId, color: selectedGems[0] });
-    } else if (selectedGems.length === 3) {
-      socket.emit('take-gems', { playerId: activeId, colors: selectedGems });
+      return (gameState?.gems?.[selectedGems[0]] || 0) >= 4;
+    }
+    const unique = new Set(selectedGems);
+    if (unique.size !== selectedGems.length) return false;
+    // Allow 1-3 distinct colors (game rules allow <3 only if fewer colors remain in bank, server validates)
+    const availableDistinct = GEM_COLORS.filter((c) => (gameState?.gems?.[c] || 0) > 0).length;
+    if (selectedGems.length === 3) return true;
+    return selectedGems.length === Math.min(3, availableDistinct);
+  })();
+
+  const handleConfirmGems = () => {
+    if (!humanPlayer || !canSubmitGemPick) return;
+    playChipClink(muted, 2);
+    if (selectedGems.length === 2 && selectedGems[0] === selectedGems[1]) {
+      socket.emit('take-two-gems', { playerId: humanPlayer.id, color: selectedGems[0] });
+    } else {
+      socket.emit('take-gems', { playerId: humanPlayer.id, colors: selectedGems });
     }
     setSelectedGems([]);
   };
 
-  // Buy a card
-  const handleBuyCard = (cardId) => {
-    // Distinct double vibration (40ms, 40ms) when buying a card
-    triggerVibrate([40, 40, 40]);
-    socket.emit('buy-card', { playerId: activeId, cardId });
-    setSelectedCardForModal(null);
-    socket.emit('unfocus-card', { playerId: activeId });
+  const handleBuyCard = (card) => {
+    if (!humanPlayer || !isHumanTurn) return;
+    playCardBuy(muted);
+    socket.emit('buy-card', { playerId: humanPlayer.id, cardId: card.id });
+    setInspectCard(null);
+    setSelectedGems([]);
   };
 
-  // Reserve a card
-  const handleReserveCard = (cardId, tier = null) => {
-    socket.emit('reserve-card', { playerId: activeId, cardId, tier });
-    setSelectedCardForModal(null);
-    socket.emit('unfocus-card', { playerId: activeId });
-  };
-
-  // Handle detailed modal card selection
-  const handleSelectCardForModal = (card) => {
-    setSelectedCardForModal(card);
-    // Removed focus-card emit to prevent aggressive TV flashing, per UX suggestion
-  };
-
-  // Close card action modal
-  const handleCloseModal = () => {
-    setSelectedCardForModal(null);
-  };
-
-  // Adjust return gem count
-  const adjustReturnCount = (color, increment) => {
-    const targetMe = gameState.players.find(p => p.id === activeId);
-    if (!targetMe) return;
-
-    triggerVibrate(10);
-
-    const currentCount = gemReturnCounts[color];
-    const maxAvailable = targetMe.gems[color];
-
-    if (increment && currentCount < maxAvailable) {
-      setGemReturnCounts({ ...gemReturnCounts, [color]: currentCount + 1 });
-    } else if (!increment && currentCount > 0) {
-      setGemReturnCounts({ ...gemReturnCounts, [color]: currentCount - 1 });
+  const handleReserveCard = (card, tier = null) => {
+    if (!humanPlayer || !isHumanTurn) return;
+    if ((humanPlayer.reserved?.length || 0) >= 3) {
+      showToast('킵 슬롯(최대 3장)이 모두 가득 찼습니다.');
+      return;
     }
+    playCardReserve(muted);
+    socket.emit('reserve-card', {
+      playerId: humanPlayer.id,
+      cardId: card ? card.id : null,
+      tier: card ? null : tier,
+    });
+    setInspectCard(null);
+    setSelectedGems([]);
   };
 
-  // Confirm returning gems
-  const handleConfirmReturn = () => {
-    socket.emit('return-gems', { playerId: activeId, gemCounts: gemReturnCounts });
+  // Excess gem return logic
+  const mustReturnGems = Boolean(humanPlayer && humanPlayer.requiresGemReturn);
+  const humanGemTotal = humanPlayer
+    ? Object.values(humanPlayer.gems || {}).reduce((a, b) => a + b, 0)
+    : 0;
+  const excessToReturn = Math.max(0, humanGemTotal - 10);
+  const selectedReturnTotal = Object.values(returnSelection).reduce((a, b) => a + b, 0);
+
+  const adjustReturnColor = (color, delta) => {
+    if (!humanPlayer) return;
+    playChipClink(muted, delta);
+    setReturnSelection((prev) => {
+      const current = prev[color] || 0;
+      const held = humanPlayer.gems?.[color] || 0;
+      const totalNow = Object.values(prev).reduce((a, b) => a + b, 0);
+      if (delta > 0 && (current >= held || totalNow >= excessToReturn)) return prev;
+      if (delta < 0 && current <= 0) return prev;
+      return { ...prev, [color]: current + delta };
+    });
   };
 
-  // --- RENDERING HELPERS ---
+  const handleSubmitGemReturn = () => {
+    if (!humanPlayer || selectedReturnTotal !== excessToReturn) return;
+    playChipClink(muted, 1);
+    socket.emit('return-gems', {
+      playerId: humanPlayer.id,
+      gemCounts: returnSelection,
+    });
+    setReturnSelection({ white: 0, blue: 0, green: 0, red: 0, black: 0, gold: 0 });
+  };
 
-  const renderGemIcon = (color, size = 'md') => {
-    const classMap = {
-      sm: 'w-5 h-5 text-xs',
-      md: 'w-10 h-10 text-md',
-      lg: 'w-14 h-14 text-lg'
-    };
+  // =========================================================================
+  // VIEW 1: STEAM-STYLE SETUP / TITLE SCREEN
+  // =========================================================================
+  if (viewMode === 'selector') {
+    const nobleRuleCount = setupCount === 4 ? 5 : 4;
+    const gemRuleCount = setupCount === 4 ? 7 : 5;
+
+    const seatConfigs =
+      setupTab === 'spec'
+        ? [
+            { name: '로렌초', role: 'AI 상인', img: PORTRAITS.lorenzo, isHuman: false },
+            { name: '베아트리체', role: 'AI 상인', img: PORTRAITS.beatrice, isHuman: false },
+            { name: '코시모', role: 'AI 상인', img: PORTRAITS.cosimo, isHuman: false },
+            { name: '이사벨라', role: 'AI 상인', img: PORTRAITS.duchess, isHuman: false },
+          ]
+        : [
+            { name: playerName, role: '플레이어', img: PORTRAITS.player, isHuman: true },
+            { name: '로렌초', role: 'AI 상인', img: PORTRAITS.lorenzo, isHuman: false },
+            { name: '베아트리체', role: 'AI 상인', img: PORTRAITS.beatrice, isHuman: false },
+            { name: '코시모', role: 'AI 상인', img: PORTRAITS.cosimo, isHuman: false },
+          ];
+
     return (
-      <div className={`gem-token gem-${color} ${classMap[size] || classMap.md}`} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        {GEM_SYMBOLS[color]}
-      </div>
-    );
-  };
+      <main className="setup-stage">
+        <VelvetAmbience />
+        {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
 
-  const getGemLabel = (color) => {
-    const labels = {
-      white: '다이아',
-      blue: '사파이어',
-      green: '에메랄드',
-      red: '루비',
-      black: '오닉스',
-      gold: '황금'
-    };
-    return labels[color] || color;
-  };
-
-  // Calculate if player can afford card
-  const canAffordCard = (player, card) => {
-    if (!player || !card || card.id === 'secret') return false;
-    let goldNeeded = 0;
-    for (const color of ['white', 'blue', 'green', 'red', 'black']) {
-      const cost = card.cost[color] || 0;
-      const discount = player.discounts[color] || 0;
-      const net = Math.max(0, cost - discount);
-      if (player.gems[color] < net) {
-        goldNeeded += (net - player.gems[color]);
-      }
-    }
-    return player.gems.gold >= goldNeeded;
-  };
-
-  // Lobby rendering
-  if (view === null) {
-    return (
-      <div className="lobby-container glass gold-metallic-highlight">
-        <h1 className="lobby-title title-font">SPLENDOR</h1>
-        <p style={{ marginBottom: '20px', color: 'rgba(255,255,255,0.7)' }}>
-          크롬캐스트 TV 화면으로 플레이하거나, 플레이어 컨트롤러로 게임에 접속하세요.
-        </p>
-        <div className="lobby-card">
-          <button 
-            className="btn-gold" 
-            onClick={() => {
-              setView('tv');
-              socket.emit('register-tv');
-              // Append view=tv to URL so reloading keeps TV view
-              window.history.pushState({}, '', '?view=tv');
-            }}
-          >
-            TV 화면 (공유 보드판) 열기
-          </button>
-
-          <div style={{ margin: '20px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}></div>
-          
-          <h3 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1rem', marginBottom: '12px', textAlign: 'center' }}>
-            로컬 싱글 / AI 플레이 설정
-          </h3>
-          
-          {/* Mode Selector Segment */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+        <div className="setup-top-bar">
+          <SplendorEmblem />
+          <div className="setup-mode-tabs" role="tablist" aria-label="게임 모드 선택">
             <button
               type="button"
-              onClick={() => setSandboxMode('pve')}
-              className={`sandbox-tab ${sandboxMode === 'pve' ? 'active' : ''}`}
-              style={{ flex: 1, padding: '10px 6px', fontSize: '0.82rem', height: 'auto' }}
+              role="tab"
+              aria-selected={setupTab === 'pve'}
+              className={`setup-tab-btn ${setupTab === 'pve' ? 'is-active' : ''}`}
+              onClick={() => setSetupTab('pve')}
             >
-              나 vs AI 대결
+              솔로 대전 (1인 vs AI)
             </button>
             <button
               type="button"
-              onClick={() => setSandboxMode('spec')}
-              className={`sandbox-tab ${sandboxMode === 'spec' ? 'active' : ''}`}
-              style={{ flex: 1, padding: '10px 6px', fontSize: '0.82rem', height: 'auto' }}
+              role="tab"
+              aria-selected={setupTab === 'spec'}
+              className={`setup-tab-btn ${setupTab === 'spec' ? 'is-active' : ''}`}
+              onClick={() => setSetupTab('spec')}
             >
-              AI 자동 관전
+              AI 관전
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={setupTab === 'local'}
+              className={`setup-tab-btn ${setupTab === 'local' ? 'is-active' : ''}`}
+              onClick={() => setSetupTab('local')}
+            >
+              TV · 모바일 로컬
             </button>
           </div>
-
-          {/* Player Count Selector Segment */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-            <button
-              type="button"
-              onClick={() => setSandboxCount(3)}
-              className={`sandbox-tab ${sandboxCount === 3 ? 'active' : ''}`}
-              style={{ flex: 1, padding: '10px 6px', fontSize: '0.82rem', height: 'auto' }}
-            >
-              3인 (보석 5개)
-            </button>
-            <button
-              type="button"
-              onClick={() => setSandboxCount(4)}
-              className={`sandbox-tab ${sandboxCount === 4 ? 'active' : ''}`}
-              style={{ flex: 1, padding: '10px 6px', fontSize: '0.82rem', height: 'auto' }}
-            >
-              4인 (보석 7개)
-            </button>
-          </div>
-
-          {/* Large Action Button */}
-          <button 
-            className="btn-gold" 
-            onClick={() => {
-              setView('sandbox');
-              socket.emit('register-sandbox');
-              window.history.pushState({}, '', '?view=sandbox');
-              handleStartSandbox(sandboxMode, sandboxCount);
-            }}
-            style={{ width: '100%', padding: '14px', textShadow: '0 1px 2px rgba(0,0,0,0.5)', cursor: 'pointer' }}
-          >
-            {sandboxMode === 'pve' ? `나 vs AI (${sandboxCount}인) 플레이 시작` : `AI 대결 (${sandboxCount}인) 관전 시작`}
-          </button>
-          
-          <div style={{ margin: '20px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}></div>
-          
-          <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h3 className="title-font" style={{ color: 'var(--color-gold)' }}>플레이어로 참가</h3>
-            <input
-              type="text"
-              placeholder="닉네임을 입력하세요"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              maxLength={12}
-              style={{
-                background: 'rgba(0,0,0,0.3)',
-                border: '1px solid var(--color-gold)',
-                borderRadius: '8px',
-                padding: '12px',
-                color: '#fff',
-                fontSize: '1rem',
-                textAlign: 'center',
-                outline: 'none'
-              }}
-            />
-            <button type="submit" className="btn-gold" disabled={!playerName.trim()}>
-              게임 입장하기
-            </button>
-          </form>
         </div>
-      </div>
-    );
-  }
 
-  // Waiting for state
-  if (!gameState) {
-    return (
-      <div style={{ textAlign: 'center', marginTop: '30vh' }}>
-        <div className="spinner"></div>
-        <p className="title-font" style={{ color: 'var(--color-gold)', marginTop: '10px' }}>
-          서버에 연결 중...
-        </p>
-      </div>
-    );
-  }
-
-  const { status, players, currentPlayerIndex, board, nobles, gems, logs, winner } = gameState;
-  const isMyTurn = (view === 'player' && players[currentPlayerIndex]?.id === playerId) ||
-                   (view === 'sandbox' && players[currentPlayerIndex]?.id === sandboxActivePlayerId);
-  const me = view === 'player' ? players.find(p => p.id === playerId) :
-             (view === 'sandbox' ? players.find(p => p.id === sandboxActivePlayerId) : null);
-
-  // ==========================================
-  // 📺 TV VIEW
-  // ==========================================
-  const renderTVView = (isSandbox = false) => {
-    const qrUrl = `http://${gameState.localIp}:${gameState.port}`;
-    return (
-      <div className="tv-layout" style={isSandbox ? { height: '100%', width: '100%', padding: '0', gridTemplateColumns: '220px 1fr 240px', gap: '10px' } : {}}>
-        {/* Toast Notification Banner */}
-        {toastLog && (
-          <div className="tv-toast-banner">
-            <span style={{ color: 'var(--color-gold)', marginRight: '8px' }}>✦</span>
-            {toastLog.text}
-            <span style={{ color: 'var(--color-gold)', marginLeft: '8px' }}>✦</span>
-          </div>
-        )}
-
-        {/* Left Side: Nobles and Bank */}
-        <div className="glass gold-metallic-highlight" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'space-between' }}>
-          <div>
-            <h3 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1rem', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>귀족 타일</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-              {nobles.length === 0 ? (
-                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem' }}>귀족 없음</div>
-              ) : (
-                nobles.map(noble => (
-                  <div key={noble.id} className="noble-card" style={getNobleStyle(noble)}>
-                    <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-                      <div className="pv-shield" style={{ transform: 'scale(1.1)' }}>{noble.points}</div>
-                    </div>
-                    <div className="card-costs" style={{ flexDirection: 'row', gap: '4px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                      {Object.entries(noble.cost).map(([color, cost]) => (
-                        <div key={color} className="noble-cost-item">
-                          <div className={`gem-token-small gem-${color}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                            {GEM_SYMBOLS[color]}
-                          </div>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{cost}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
+        {setupTab === 'local' ? (
+          <section className="local-multi-grid">
+            <div className="local-mode-card">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <Tv size={46} color="#e2bd6d" />
+                <h3>TV 공용 테이블 보드</h3>
+                <p>
+                  거실 모니터나 TV에 보석 은행, 개발 카드 시장, 귀족 타일을 크게 띄웁니다.
+                  플레이어들은 QR 코드를 스캔해 스마트폰으로 참가합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                onClick={() => setViewMode('tv')}
+              >
+                TV 보드 열기
+              </button>
             </div>
-          </div>
 
-          <div>
-            <h3 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1rem', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>보석 은행</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', justifyItems: 'center' }}>
-              {Object.entries(gems).map(([color, count]) => (
-                <div key={color} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div className={`gem-token gem-${color}`} style={{ cursor: 'default', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
-                    <span style={{ fontSize: '1.25rem', marginBottom: '1px' }}>{GEM_SYMBOLS[color]}</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{count}</span>
+            <div className="local-mode-card">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <Smartphone size={46} color="#e2bd6d" />
+                <h3>모바일 핸드헬드 컨트롤러</h3>
+                <p>
+                  TV 공용 보드와 실시간으로 연동되는 개인 손패 컨트롤러입니다.
+                  보석 채집, 카드 구매, 비공개 킵을 휴대폰에서 조작합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                onClick={() => setViewMode('player')}
+              >
+                모바일 참가하기
+              </button>
+            </div>
+          </section>
+        ) : (
+          <section className="setup-workspace" aria-label="대전 설정">
+            {/* Left 2x2 Ornate Portrait Grid */}
+            <div className="setup-portrait-grid">
+              {seatConfigs.slice(0, 3).map((seat, idx) => (
+                <div
+                  key={idx}
+                  className={`setup-seat-card ${seat.isHuman ? 'is-human' : ''}`}
+                >
+                  <div className="setup-seat-portrait-wrap">
+                    <img src={seat.img} alt={seat.name} className="setup-seat-portrait" />
+                    <span className="setup-seat-role">{seat.role}</span>
                   </div>
-                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>{getGemLabel(color)}</span>
+                  <div className="setup-seat-footer">
+                    {seat.isHuman ? (
+                      <input
+                        type="text"
+                        className="setup-name-input"
+                        value={playerName}
+                        maxLength={14}
+                        onChange={(e) => setPlayerName(e.target.value)}
+                        aria-label="플레이어 상인 이름"
+                        placeholder="상인 이름 입력"
+                      />
+                    ) : (
+                      <>
+                        <span className="setup-seat-name">{seat.name}</span>
+                        <span className="setup-seat-sub">르네상스 길드 AI</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
-            </div>
-          </div>
-        </div>
 
-        {/* Center: Decks and Card Board */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
-          {status === 'lobby' ? (
-            <div className="glass gold-metallic-highlight" style={{ padding: '40px', textAlign: 'center', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
-              <h2 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '2rem' }}>대기실 (LOBBY)</h2>
-              
-              <div style={{ display: 'flex', gap: '40px', alignItems: 'center', margin: '20px 0' }}>
-                <div style={{ background: '#fff', padding: '12px', borderRadius: '8px' }}>
-                  <QRCodeSVG value={qrUrl} size={150} />
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <p style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '8px' }}>동일 와이파이 접속 방법:</p>
-                  <p style={{ color: 'var(--color-gold)', fontSize: '1.1rem', fontFamily: 'monospace' }}>{qrUrl}</p>
-                  <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.6)', marginTop: '8px' }}>
-                    스마트폰으로 QR 코드를 스캔하거나 위 주소에 접속하여 입장하세요.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ width: '100%', maxWidth: '400px' }}>
-                <h4 className="title-font" style={{ color: 'var(--color-gold)', marginBottom: '10px' }}>참여한 플레이어 ({players.length}/4)</h4>
-                {players.length === 0 ? (
-                  <p style={{ color: 'rgba(255,255,255,0.4)' }}>플레이어를 기다리는 중...</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {players.map((p, idx) => (
-                      <div key={p.id} className="glass" style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{idx + 1}. {p.name}</span>
-                        <span style={{ color: 'green', fontSize: '0.8rem' }}>● 연결됨</span>
-                      </div>
-                    ))}
+              {/* 4th Seat: Toggleable between + Add Merchant and 4th AI Portrait */}
+              {setupCount === 4 ? (
+                <div className="setup-seat-card">
+                  <div className="setup-seat-portrait-wrap">
+                    <img
+                      src={seatConfigs[3].img}
+                      alt={seatConfigs[3].name}
+                      className="setup-seat-portrait"
+                    />
+                    <span className="setup-seat-role">{seatConfigs[3].role}</span>
+                    <button
+                      type="button"
+                      className="setup-seat-remove"
+                      onClick={() => setSetupCount(3)}
+                      title="3인 대전으로 변경"
+                      aria-label="4번째 상인 제거"
+                    >
+                      <X size={18} />
+                    </button>
                   </div>
-                )}
-              </div>
-
-              <button 
-                className="btn-gold" 
-                onClick={handleStartGame} 
-                disabled={players.length < 2}
-                style={{ marginTop: '20px', padding: '12px 30px', fontSize: '1.1rem' }}
-              >
-                게임 시작
-              </button>
-            </div>
-          ) : (
-            // Active Board
-            [3, 2, 1].map(tier => (
-              <div key={tier} className="glass" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <h4 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '0.85rem' }}>
-                  {tier}단계 개발 카드
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '80px repeat(4, 1fr)', gap: '12px' }}>
-                  {/* Deck Pile Card */}
-                  <div 
-                    className="dev-card" 
-                    style={{ 
-                      background: 'linear-gradient(135deg, #090d16, #161e2b)', 
-                      border: '2px dashed var(--color-gold)', 
-                      justifyContent: 'center', 
-                      alignItems: 'center',
-                      cursor: 'default'
-                    }}
-                  >
-                    <span className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1.5rem' }}>D{tier}</span>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>남은 카드</span>
-                  </div>
-                  {/* Cards on board */}
-                  {board[tier].map(card => {
-                    // Check if focused by any player
-                    const focusPlayerIdx = players.findIndex(p => gameState.focusMap && gameState.focusMap[p.id] === card.id);
-                    const focusClass = focusPlayerIdx !== -1 ? `card-focused-p${focusPlayerIdx}` : '';
-                    const currentPlayer = players[currentPlayerIndex];
-                    const affordable = status === 'playing' && currentPlayer && canAffordCard(currentPlayer, card);
-                    return (
-                      <div key={card.id} className={`dev-card tier-${tier} ${focusClass} ${affordable ? 'affordable-glow' : ''}`} style={getCardStyle(card)}>
-                        <div className="card-header">
-                          {card.points > 0 ? (
-                            <div className="pv-shield">{card.points}</div>
-                          ) : (
-                            <div style={{ width: '28px', height: '32px' }} />
-                          )}
-                          <div className={`card-gem-bonus gem-${card.color}`} style={{ color: card.color === 'white' ? '#000' : '#fff' }}>
-                            {GEM_SYMBOLS[card.color]}
-                          </div>
-                        </div>
-                        <div className="card-costs">
-                          {Object.entries(card.cost).map(([color, cost]) => (
-                            <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <div className={`gem-token-small gem-${color}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                                {GEM_SYMBOLS[color]}
-                              </div>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{cost}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {/* Placeholders if cards are empty */}
-                  {Array.from({ length: 4 - board[tier].length }).map((_, idx) => (
-                    <div key={idx} className="dev-card" style={{ opacity: 0.1, border: '1px dashed #fff', cursor: 'default' }} />
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Right Side: Players and Logs */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '100%' }}>
-          {/* Players scoreboard */}
-          <div className="glass gold-metallic-highlight" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
-            <h3 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>점수판</h3>
-            {players.map((player, idx) => {
-              const isTurn = status === 'playing' && currentPlayerIndex === idx;
-              return (
-                <div 
-                  key={player.id} 
-                  className={`glass ${isTurn ? 'pulse-active' : ''}`}
-                  style={{ 
-                    padding: '10px', 
-                    borderLeft: isTurn ? '4px solid var(--color-gold)' : '1px solid var(--border-color)',
-                    background: isTurn ? 'rgba(223, 177, 91, 0.08)' : ''
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {isTurn && <span style={{ color: 'var(--color-gold)' }}>▶</span>}
-                      {player.name}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div className="pv-shield" style={{ width: '30px', height: '34px', fontSize: '1.1rem' }}>{player.points}</div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-gold)', fontWeight: 'bold' }}>PV</span>
-                    </div>
-                  </div>
-
-                  {/* Gem discounts (permanent) */}
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-                    {Object.entries(player.discounts).map(([color, val]) => (
-                      <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                        <div className={`gem-token-small gem-${color}`} style={{ borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                          {GEM_SYMBOLS[color]}
-                        </div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: val > 0 ? '#fff' : 'rgba(255,255,255,0.3)' }}>{val}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Gems owned (hand) */}
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {Object.entries(player.gems).map(([color, val]) => (
-                      <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                        <div className={`gem-token-small gem-${color}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                          {GEM_SYMBOLS[color]}
-                        </div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: val > 0 ? '#fff' : 'rgba(255,255,255,0.3)' }}>{val}</span>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '6px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '6px' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>킵:</span>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{player.reservedCount}</span>
-                    </div>
+                  <div className="setup-seat-footer">
+                    <span className="setup-seat-name">{seatConfigs[3].name}</span>
+                    <span className="setup-seat-sub">르네상스 길드 AI</span>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Action Logs */}
-          <div className="glass gold-metallic-highlight" style={{ padding: '12px', height: '200px', display: 'flex', flexDirection: 'column' }}>
-            <h4 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '0.85rem', marginBottom: '6px', borderBottom: '1px solid var(--border-color)', paddingBottom: '2px' }}>로그</h4>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem' }}>
-              {logs.length === 0 ? (
-                <div style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '10px' }}>로그 기록이 없습니다.</div>
               ) : (
-                logs.map(log => (
-                  <div key={log.id} style={{ display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '2px' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>[{log.time}]</span>
-                    <span>{log.text}</span>
+                <button
+                  type="button"
+                  className="setup-seat-add"
+                  onClick={() => setSetupCount(4)}
+                  aria-label="4번째 AI 상인 추가하여 4인 대전으로 변경"
+                >
+                  <div className="setup-add-medallion">
+                    <Compass size={42} />
                   </div>
-                ))
+                  <span className="setup-add-label">
+                    <Plus size={19} style={{ display: 'inline', verticalAlign: '-3px' }} /> 4번째 상인 추가
+                  </span>
+                  <span className="setup-add-hint">클릭하여 4인 대전으로 확장</span>
+                </button>
               )}
             </div>
-          </div>
-          
-          {status !== 'lobby' && (
-            <button className="btn-outline" onClick={handleRestartGame} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-              게임 리셋
-            </button>
-          )}
-        </div>
 
-        {/* Winner Dialog Overlay */}
-        {winner && (
-          <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column',
-            justifyContent: 'center', alignItems: 'center', zIndex: 1000
-          }}>
-            <div className="glass gold-metallic-highlight" style={{ padding: '40px', textAlign: 'center', maxWidth: '500px', width: '90%' }}>
-              <h1 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '3rem', marginBottom: '20px' }}>VICTORY</h1>
-              <h2 style={{ fontSize: '2rem', marginBottom: '10px' }}>{winner.name}</h2>
-              <p style={{ fontSize: '1.2rem', color: 'rgba(255,255,255,0.7)', marginBottom: '30px' }}>
-                명성 점수 {winner.points}점으로 승리하셨습니다!
-              </p>
-              <button className="btn-gold" onClick={handleRestartGame}>
-                새 게임 시작
+            {/* Right Antique Dark-Plum Rulebook Plaque */}
+            <aside className="setup-rulebook" aria-label="대전 규칙 요약">
+              <div className="setup-rule-header">
+                <h2 className="setup-rule-title">{setupCount}인 길드 대전</h2>
+                <div className="setup-rule-divider" />
+              </div>
+
+              <ul className="setup-rule-list">
+                <li>
+                  <span className="setup-rule-key">참가 귀족 타일</span>
+                  <span className="setup-rule-val numeric">{nobleRuleCount}명</span>
+                </li>
+                <li>
+                  <span className="setup-rule-key">황금 조커 토큰</span>
+                  <span className="setup-rule-val numeric">5개</span>
+                </li>
+                <li>
+                  <span className="setup-rule-key">색상별 보석 토큰</span>
+                  <span className="setup-rule-val numeric">{gemRuleCount}개</span>
+                </li>
+              </ul>
+
+              <div className="setup-victory-seal">
+                <div className="setup-seal-circle" aria-label="승리 목표 승점 15점">
+                  <span className="setup-seal-num">15</span>
+                </div>
+                <span className="setup-seal-caption">15점 달성 시 승리</span>
+              </div>
+
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                data-start="true"
+                onClick={() => launchSandboxGame(setupTab === 'spec' ? 'spec' : 'pve', setupCount)}
+              >
+                {setupTab === 'spec' ? 'AI 대전 관전 시작' : '게임 시작'}
+              </button>
+            </aside>
+          </section>
+        )}
+
+        <p className="setup-control-hint">
+          {setupTab === 'local'
+            ? 'TV 보드의 QR 코드를 스마트폰으로 스캔해 최대 4인 로컬 멀티플레이를 즐기세요'
+            : 'Enter · Space 바로 시작  ·  보석 3종 수집 · 개발 카드 구매 · 귀족 후원 15점 선취'}
+        </p>
+      </main>
+    );
+  }
+
+  // =========================================================================
+  // VIEW 2: TV LOBBY (waiting for phones to join)
+  // =========================================================================
+  if (viewMode === 'tv' && (!gameState || gameState.status === 'lobby')) {
+    const mobileUrl = gameState
+      ? `${window.location.protocol}//${gameState.localIp}:${gameState.port}/?view=player`
+      : `${window.location.origin}/?view=player`;
+
+    return (
+      <main className="tv-lobby-shell">
+        {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
+        <SplendorEmblem />
+        <div className="tv-lobby-grid">
+          <div className="tv-panel" style={{ alignItems: 'center', textAlign: 'center' }}>
+            <h2 className="setup-rule-title" style={{ fontSize: '1.25rem' }}>모바일 참가 QR</h2>
+            <div className="qr-frame">
+              <QRCodeSVG value={mobileUrl} size={188} />
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', wordBreak: 'break-all' }}>
+              {mobileUrl}
+            </p>
+          </div>
+
+          <div className="tv-panel" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h2 className="setup-rule-title" style={{ fontSize: '1.25rem' }}>
+                참가 대기 상인 ({players.length} / 4)
+              </h2>
+              {players.length === 0 ? (
+                <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem' }}>
+                  스마트폰으로 QR 코드를 스캔하거나 새 탭에서 모바일 컨트롤러로 입장하세요.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {players.map((p, idx) => (
+                    <div key={p.id} className="victory-row">
+                      <span style={{ fontWeight: 700 }}>{idx + 1}. {p.name}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--gold-primary)' }}>준비 완료</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                disabled={players.length < 2}
+                onClick={() => socket.emit('start-game')}
+              >
+                게임 시작 ({players.length}인)
+              </button>
+              <button
+                type="button"
+                className="btn-gilded-secondary"
+                onClick={() => setViewMode('selector')}
+              >
+                돌아가기
               </button>
             </div>
           </div>
-        )}
-      </div>
-    );
-  };
-
-  // ==========================================
-  // 📱 PLAYER CONTROLLER VIEW (MOBILE)
-  // ==========================================
-  const renderPlayerView = (isSandbox = false) => {
-    const myIndex = players.findIndex(p => p.id === activeId);
-  if (myIndex === -1) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <p>게임에 참가하는 중...</p>
-      </div>
+        </div>
+      </main>
     );
   }
 
-  const isLobby = status === 'lobby';
+  // =========================================================================
+  // VIEW 3: MOBILE HANDHELD CONTROLLER (?view=player)
+  // =========================================================================
+  if (viewMode === 'player') {
+    const joinedMe = players.find((p) => p.id === playerId);
+    const mobileIsMyTurn =
+      gameState?.status === 'playing' &&
+      Boolean(joinedMe) &&
+      currentPlayer?.id === joinedMe.id &&
+      !joinedMe.requiresGemReturn;
 
-  // Render return gems screen if player has too many gems
-  if (me && me.requiresGemReturn) {
-    const totalDiscarded = Object.values(gemReturnCounts).reduce((a, b) => a + b, 0);
-    const totalGems = Object.values(me.gems).reduce((a, b) => a + b, 0);
-    const targetDiscard = totalGems - 10;
-    
+    if (!joinedMe) {
+      return (
+        <main className="mobile-shell" style={{ justifyContent: 'center' }}>
+          {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
+          <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+            <SplendorEmblem compact />
+          </div>
+          <div className="mobile-panel">
+            <h2 className="modal-title">상인 길드 입장</h2>
+            <input
+              type="text"
+              className="setup-name-input"
+              value={playerName}
+              maxLength={14}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="상인 이름"
+              aria-label="상인 이름"
+            />
+            <button
+              type="button"
+              className="btn-gilded-primary"
+              onClick={() => {
+                const clean = playerName.trim() || '베네치아 상인';
+                localStorage.setItem('splendor_player_name', clean);
+                socket.emit('join-game', { playerId, name: clean, isAi: false });
+              }}
+            >
+              테이블 참가하기
+            </button>
+            <button
+              type="button"
+              className="btn-gilded-secondary"
+              onClick={() => setViewMode('selector')}
+            >
+              메인 화면으로
+            </button>
+          </div>
+        </main>
+      );
+    }
+
     return (
-      <div className="mobile-layout">
-        <div className="glass gold-metallic-highlight" style={{ padding: '20px', textAlign: 'center' }}>
-          <h2 className="title-font" style={{ color: 'var(--gem-red)', marginBottom: '10px' }}>보석 한도 초과</h2>
-          <p style={{ fontSize: '0.9rem', marginBottom: '15px' }}>
-            보석을 10개 이하로 유지해야 합니다.<br />
-            <strong>{targetDiscard}개</strong>의 보석을 버려주세요. (- 버튼을 눌러 버림)
-          </p>
+      <main className="mobile-shell">
+        {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
+        <header className="mobile-panel" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '1rem' }}>{joinedMe.name}</div>
+            <div style={{ fontSize: '0.78rem', color: mobileIsMyTurn ? 'var(--gold-bright)' : 'var(--ink-muted)' }}>
+              {gameState?.status === 'lobby'
+                ? 'TV에서 게임 시작 대기 중'
+                : mobileIsMyTurn
+                  ? '당신의 턴입니다'
+                  : `${currentPlayer?.name || ''} 진행 중`}
+            </div>
+          </div>
+          <div className="prestige-medal is-sm">{joinedMe.points}</div>
+        </header>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0' }}>
-            {Object.entries(me.gems).map(([color, total]) => {
-              if (total === 0) return null;
-              const discardVal = gemReturnCounts[color] || 0;
-              const keepVal = total - discardVal;
-              return (
-                <div key={color} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {renderGemIcon(color, 'sm')}
-                    <span>보유: {total}개</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button 
-                      onClick={() => adjustReturnCount(color, true)} /* true means increase discard (decrease keep) */
-                      style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid var(--gem-red)', background: 'transparent', color: 'var(--gem-red)', fontSize: '1.2rem', cursor: 'pointer' }}
-                    >
-                      -
-                    </button>
-                    <span style={{ fontWeight: 'bold', fontSize: '1.2rem', minWidth: '20px', textAlign: 'center' }}>{keepVal}</span>
-                    <button 
-                      onClick={() => adjustReturnCount(color, false)} /* false means decrease discard (increase keep) */
-                      style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #fff', background: 'transparent', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
-                    >
-                      +
-                    </button>
-                  </div>
+        {gameState?.status === 'playing' && (
+          <>
+            <div className="setup-mode-tabs" style={{ width: '100%', justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                className={`setup-tab-btn ${mobileTab === 'gems' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobileTab('gems')}
+              >
+                보석 채집
+              </button>
+              <button
+                type="button"
+                className={`setup-tab-btn ${mobileTab === 'cards' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobileTab('cards')}
+              >
+                시장 카드
+              </button>
+              <button
+                type="button"
+                className={`setup-tab-btn ${mobileTab === 'reserved' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobileTab('reserved')}
+              >
+                킵 ({joinedMe.reserved?.length || 0})
+              </button>
+            </div>
+
+            {mobileTab === 'gems' && (
+              <section className="mobile-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  {GEM_COLORS.map((color) => {
+                    const picked = selectedGems.filter((c) => c === color).length;
+                    return (
+                      <GemChip
+                        key={color}
+                        color={color}
+                        count={gameState.gems?.[color] || 0}
+                        selectedCount={picked}
+                        interactive={mobileIsMyTurn}
+                        disabled={!mobileIsMyTurn || (gameState.gems?.[color] || 0) === 0}
+                        onClick={() => handleToggleGemPick(color)}
+                      />
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <span>남는 보석 수:</span>
-            <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: totalDiscarded === targetDiscard ? 'var(--gem-green)' : 'var(--gem-red)' }}>
-              {totalGems - totalDiscarded} / 10개
-            </span>
-          </div>
-
-          <button 
-            className="btn-gold" 
-            disabled={totalDiscarded !== targetDiscard}
-            onClick={handleConfirmReturn}
-            style={{ width: '100%' }}
-          >
-            버리기 완료
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mobile-layout">
-      {/* Header bar */}
-      <div className="glass gold-metallic-highlight" style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', display: 'block' }}>플레이어</span>
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 'bold' }}>{me.name}</h3>
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', display: 'block' }}>상태</span>
-          <div style={{ fontSize: '0.95rem', color: isMyTurn ? 'var(--color-gold-light)' : '#fff', fontWeight: 'bold' }}>
-            {isMyTurn ? '내 차례!' : '상대 대기중'}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div className="pv-shield" style={{ width: '30px', height: '34px', fontSize: '1.15rem' }}>{me.points}</div>
-          <div style={{ textAlign: 'left', lineHeight: '1.1' }}>
-            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.6)', display: 'block' }}>명성 점수</span>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-gold)', fontWeight: 'bold' }}>PV</span>
-          </div>
-        </div>
-      </div>
-
-      {errorMsg && (
-        <div style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid var(--gem-red)', borderRadius: '8px', padding: '10px', textAlign: 'center', fontSize: '0.9rem', color: '#fca5a5' }}>
-          {errorMsg}
-        </div>
-      )}
-
-      {isLobby ? (
-        <div className="glass gold-metallic-highlight" style={{ padding: '30px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1, justifyContent: 'center' }}>
-          <h2 className="title-font" style={{ color: 'var(--color-gold)' }}>대기 중</h2>
-          <p>모든 플레이어가 들어오면 방장이 게임 시작 버튼을 누르거나, 아래 버튼을 눌러 바로 시작할 수 있습니다.</p>
-          <div style={{ fontSize: '0.9rem', opacity: 0.6 }}>
-            참가자 수: {players.length}명
-          </div>
-          <button className="btn-gold" onClick={handleStartGame} disabled={players.length < 2}>
-            게임 시작하기
-          </button>
-        </div>
-      ) : (
-        // ACTIVE GAME CONTROLS
-        <>
-          {/* Sticky Resource Bar */}
-          <div className="glass" style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(10, 12, 16, 0.95)', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, zIndex: 10 }}>
-            {['white', 'blue', 'green', 'red', 'black', 'gold'].map(color => (
-              <div key={color} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-                <div className={`gem-token-small gem-${color}`} style={{ width: '18px', height: '18px', fontSize: '0.55rem' }}>
-                  {GEM_SYMBOLS[color]}
-                </div>
-                <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{me.gems[color]}</span>
-                {color !== 'gold' && me.discounts[color] > 0 && (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--color-gold-light)' }}>+{me.discounts[color]}</span>
+                {selectedGems.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn-gilded-primary"
+                      disabled={!canSubmitGemPick}
+                      onClick={handleConfirmGems}
+                    >
+                      보석 가져오기 ({selectedGems.length})
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-gilded-secondary"
+                      onClick={() => setSelectedGems([])}
+                    >
+                      취소
+                    </button>
+                  </div>
                 )}
-              </div>
-            ))}
-          </div>
+              </section>
+            )}
 
-          {/* Main action tabs selector */}
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button 
-              className={`glass ${activeTab === 'board' ? 'glass-glow' : ''}`}
-              onClick={() => setActiveTab('board')}
-              style={{
-                flex: 1, padding: '12px', border: '1px solid',
-                borderColor: activeTab === 'board' ? 'var(--color-gold)' : 'var(--border-color)',
-                color: activeTab === 'board' ? 'var(--color-gold)' : '#fff',
-                background: 'transparent', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer'
-              }}
-            >
-              개발 카드 구매
-            </button>
-            <button 
-              className={`glass ${activeTab === 'gems' ? 'glass-glow' : ''}`}
-              onClick={() => setActiveTab('gems')}
-              style={{
-                flex: 1, padding: '12px', border: '1px solid',
-                borderColor: activeTab === 'gems' ? 'var(--color-gold)' : 'var(--border-color)',
-                color: activeTab === 'gems' ? 'var(--color-gold)' : '#fff',
-                background: 'transparent', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer'
-              }}
-            >
-              보석 가져오기
-            </button>
-            <button 
-              className={`glass ${activeTab === 'hand' ? 'glass-glow' : ''}`}
-              onClick={() => setActiveTab('hand')}
-              style={{
-                flex: 1, padding: '12px', border: '1px solid',
-                borderColor: activeTab === 'hand' ? 'var(--color-gold)' : 'var(--border-color)',
-                color: activeTab === 'hand' ? 'var(--color-gold)' : '#fff',
-                background: 'transparent', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer'
-              }}
-            >
-              내 보석 & 킵
-            </button>
-          </div>
-
-          {/* TAB 1: BOARD CARDS */}
-          {activeTab === 'board' && (
-            <div className="glass" style={{ padding: '8px', flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
-              <div style={{ textAlign: 'center', marginBottom: '2px' }}>
-                <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                  TV 보드판과 1:1 매핑된 그리드입니다. 카드를 탭하여 구매/킵 하세요.
-                </span>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {[3, 2, 1].map(tier => {
-                  const deckReservable = isMyTurn && me.reservedCount < 3;
-                  return (
-                    <div key={tier} style={{ display: 'grid', gridTemplateColumns: '46px repeat(4, 1fr)', gap: '6px', alignItems: 'center' }}>
-                      {/* Left: Deck Pile / Blind Keep Button */}
-                      <div 
-                        className="dev-card deck-pile" 
-                        onClick={() => deckReservable && handleReserveCard(null, tier)}
-                        style={{ 
-                          background: 'linear-gradient(135deg, #090d16, #161e2b)', 
-                          border: deckReservable ? '1px dashed var(--color-gold)' : '1px dashed rgba(255,255,255,0.15)', 
-                          justifyContent: 'center', 
-                          alignItems: 'center',
-                          cursor: deckReservable ? 'pointer' : 'default',
-                          opacity: deckReservable ? 1 : 0.4,
-                          padding: '4px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '2px'
-                        }}
-                      >
-                        <span className="title-font" style={{ color: deckReservable ? 'var(--color-gold)' : 'rgba(255,255,255,0.4)', fontSize: '0.8rem', fontWeight: 'bold' }}>D{tier}</span>
-                        <span style={{ fontSize: '0.55rem', opacity: 0.6, color: '#fff', textAlign: 'center' }}>킵</span>
-                      </div>
-
-                      {/* Right: 4 Card Slots */}
-                      {board[tier].map(card => {
-                        const affordable = canAffordCard(me, card);
-                        return (
-                          <div 
-                            key={card.id} 
-                            className={`dev-card tier-${tier} ${affordable && isMyTurn ? 'affordable-glow' : ''}`}
-                            onClick={() => handleSelectCardForModal(card)}
-                            style={{
-                              ...getCardStyle(card),
-                              opacity: isMyTurn ? 1 : 0.75,
-                              padding: '4px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'space-between'
-                            }}
-                          >
-                            <div className="card-header" style={{ marginBottom: '2px' }}>
-                              {card.points > 0 ? (
-                                <div className="pv-shield" style={{ width: '15px', height: '18px', fontSize: '0.65rem', borderWidth: '1px', borderRadius: '0 0 8px 8px' }}>
-                                  {card.points}
-                                </div>
-                              ) : (
-                                <div style={{ width: '15px', height: '18px' }} />
-                              )}
-                              <div className={`card-gem-bonus gem-${card.color}`} style={{ width: '13px', height: '13px', fontSize: '0.45rem', color: card.color === 'white' ? '#000' : '#fff' }}>
-                                {GEM_SYMBOLS[card.color]}
-                              </div>
-                            </div>
-                            <div className="card-costs" style={{ gap: '1px' }}>
-                              {Object.entries(card.cost).map(([color, cost]) => {
-                                const satisfied = (me.discounts[color] + me.gems[color]) >= cost;
-                                return (
-                                  <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                    <div className={`gem-token-small gem-${color}`} style={{ width: '9px', height: '9px', fontSize: '0.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                      {GEM_SYMBOLS[color]}
-                                    </div>
-                                    <span style={{ fontSize: '0.6rem', color: satisfied ? '#fff' : 'var(--gem-red)', fontWeight: 'bold', lineHeight: 1 }}>{cost}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      
-                      {/* Placeholders for empty board slots */}
-                      {Array.from({ length: 4 - board[tier].length }).map((_, idx) => (
-                        <div 
-                          key={idx} 
-                          className="dev-card empty-placeholder" 
-                          style={{ 
-                            opacity: 0.15, 
-                            border: '1px dashed rgba(255,255,255,0.4)', 
-                            cursor: 'default',
-                            background: 'rgba(255,255,255,0.02)',
-                            padding: '4px'
-                          }} 
+            {mobileTab === 'cards' && (
+              <section className="mobile-panel">
+                {[3, 2, 1].map((tier) => (
+                  <div key={tier} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--gold-primary)', fontWeight: 700 }}>
+                      {tier === 3 ? 'III단계' : tier === 2 ? 'II단계' : 'I단계'}
+                    </div>
+                    <div className="mobile-card-grid">
+                      {(gameState.board?.[tier] || []).map((card) => (
+                        <DevelopmentCard
+                          key={card.id}
+                          card={card}
+                          affordable={canAffordCard(joinedMe, card)}
+                          interactive={mobileIsMyTurn}
+                          onClick={mobileIsMyTurn ? () => setInspectCard({ card, fromReserved: false }) : undefined}
                         />
                       ))}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                  </div>
+                ))}
+              </section>
+            )}
 
-          {/* TAB 2: TAKE GEMS */}
-          {activeTab === 'gems' && (
-            <div className="glass" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'center' }}>
-              <div style={{ textAlign: 'center', marginBottom: '10px' }}>
-                <h3 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '1.2rem', marginBottom: '4px' }}>보석 획득 방식</h3>
-                <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
-                  서로 다른 3개 색상을 1개씩 선택하거나,<br />
-                  은행에 4개 이상 남아있는 동일 색상을 2개 선택할 수 있습니다.
-                </p>
-              </div>
-
-              {/* Circle tokens container */}
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                {['white', 'blue', 'green', 'red', 'black'].map(color => {
-                  const count = selectedGems.filter(c => c === color).length;
-                  const isSelectable = isMyTurn && gems[color] > 0;
-                  
-                  return (
-                    <div 
-                      key={color} 
-                      onClick={() => isSelectable && toggleSelectGem(color)}
-                      style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        alignItems: 'center', 
-                        gap: '6px', 
-                        opacity: isSelectable ? 1 : 0.4 
-                      }}
-                    >
-                      <div 
-                        className={`gem-token gem-${color} ${count > 0 ? 'active-selection' : ''}`}
-                        style={{ 
-                          width: '60px', 
-                          height: '60px', 
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          justifyContent: 'center', 
-                          lineHeight: 1 
-                        }}
-                      >
-                        <span style={{ fontSize: '1.4rem' }}>{GEM_SYMBOLS[color]}</span>
-                        {count > 0 && (
-                          <span style={{ fontSize: '0.9rem', fontWeight: 'bold', marginTop: '2px' }}>
-                            +{count}
-                          </span>
-                        )}
-                      </div>
-                      <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                        남음: {gems[color]}개
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                  <span>선택 목록:</span>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {selectedGems.map((color, idx) => (
-                      <div key={idx} className={`gem-token-small gem-${color}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                        {GEM_SYMBOLS[color]}
-                      </div>
+            {mobileTab === 'reserved' && (
+              <section className="mobile-panel">
+                {(joinedMe.reserved?.length || 0) === 0 ? (
+                  <p style={{ fontSize: '0.86rem', color: 'var(--ink-muted)' }}>보유 중인 킵 카드가 없습니다.</p>
+                ) : (
+                  <div className="mobile-card-grid">
+                    {joinedMe.reserved.map((card) => (
+                      <DevelopmentCard
+                        key={card.id}
+                        card={card}
+                        affordable={canAffordCard(joinedMe, card)}
+                        interactive={mobileIsMyTurn}
+                        onClick={mobileIsMyTurn ? () => setInspectCard({ card, fromReserved: true }) : undefined}
+                      />
                     ))}
                   </div>
-                </div>
-
-                <button 
-                  className="btn-gold"
-                  onClick={handleConfirmGems}
-                  disabled={!isMyTurn || !(selectedGems.length === 3 || (selectedGems.length === 2 && selectedGems[0] === selectedGems[1]))}
-                  style={{ width: '100%', padding: '14px' }}
-                >
-                  보석 가져오기 확정
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: MY HAND & RESERVED */}
-          {activeTab === 'hand' && (
-            <div className="glass" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
-              
-              {/* Owned resources */}
-              <div>
-                <h4 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '0.9rem', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>내 보석 & 영구 할인</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                  {['white', 'blue', 'green', 'red', 'black', 'gold'].map(color => (
-                    <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px' }}>
-                      {renderGemIcon(color, 'sm')}
-                      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{me.gems[color]}</span>
-                        {color !== 'gold' && (
-                          <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)' }}>할인: {me.discounts[color]}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reserved Cards */}
-              <div style={{ flex: 1 }}>
-                <h4 className="title-font" style={{ color: 'var(--color-gold)', fontSize: '0.9rem', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>내가 킵해둔 카드 (Reserved - {me.reserved.length}/3)</h4>
-                
-                {me.reserved.length === 0 ? (
-                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', padding: '20px 0', textAlign: 'center' }}>
-                    킵해둔 카드가 없습니다.
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                    {me.reserved.map(card => {
-                      const affordable = canAffordCard(me, card);
-                      return (
-                        <div 
-                          key={card.id} 
-                          className={`dev-card tier-${card.level} ${affordable && isMyTurn ? 'affordable-glow' : ''}`}
-                          onClick={() => handleSelectCardForModal(card)}
-                          style={{
-                            ...getCardStyle(card),
-                            opacity: isMyTurn ? 1 : 0.75,
-                            padding: '4px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'space-between'
-                          }}
-                        >
-                          <div className="card-header" style={{ marginBottom: '2px' }}>
-                            {card.points > 0 ? (
-                              <div className="pv-shield" style={{ width: '15px', height: '18px', fontSize: '0.65rem', borderWidth: '1px', borderRadius: '0 0 8px 8px' }}>
-                                {card.points}
-                              </div>
-                            ) : (
-                              <div style={{ width: '15px', height: '18px' }} />
-                            )}
-                            <div className={`card-gem-bonus gem-${card.color}`} style={{ width: '13px', height: '13px', fontSize: '0.45rem', color: card.color === 'white' ? '#000' : '#fff' }}>
-                              {GEM_SYMBOLS[card.color]}
-                            </div>
-                          </div>
-                          <div className="card-costs" style={{ gap: '1px' }}>
-                            {Object.entries(card.cost).map(([color, cost]) => {
-                              const satisfied = (me.discounts[color] + me.gems[color]) >= cost;
-                              return (
-                                <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                  <div className={`gem-token-small gem-${color}`} style={{ width: '9px', height: '9px', fontSize: '0.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    {GEM_SYMBOLS[color]}
-                                  </div>
-                                  <span style={{ fontSize: '0.6rem', color: satisfied ? '#fff' : 'var(--gem-red)', fontWeight: 'bold', lineHeight: 1 }}>{cost}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
                 )}
-              </div>
+              </section>
+            )}
+          </>
+        )}
 
-              {/* Reset connection button */}
-              <button 
-                onClick={() => {
-                  if (confirm('Lobby로 나가시겠습니까?')) {
-                    setView(null);
-                    window.history.pushState({}, '', '/');
-                  }
-                }}
-                className="btn-outline"
-                style={{ padding: '8px 12px', fontSize: '0.8rem', width: '100%', marginTop: '10px' }}
-              >
-                메인 화면으로 나가기
-              </button>
+        {/* Reuse Card Action Modal on Mobile */}
+        {inspectCard && joinedMe && (
+          <CardActionModal
+            card={inspectCard.card}
+            fromReserved={inspectCard.fromReserved}
+            player={joinedMe}
+            canAct={mobileIsMyTurn}
+            onBuy={() => handleBuyCard(inspectCard.card)}
+            onReserve={() => handleReserveCard(inspectCard.card)}
+            onClose={() => setInspectCard(null)}
+          />
+        )}
+      </main>
+    );
+  }
+
+  // =========================================================================
+  // VIEW 4: FULL-BLEED DIRECT-PLAY STEAM SPLENDOR TABLETOP (sandbox / tv)
+  // =========================================================================
+  if (!gameState) {
+    return (
+      <main className="setup-stage">
+        <SplendorEmblem />
+        <p style={{ color: 'var(--ink-secondary)' }}>르네상스 보석 테이블을 준비하는 중...</p>
+      </main>
+    );
+  }
+
+  const interactiveBoard = viewMode === 'sandbox' && sandboxMode === 'pve' && isHumanTurn;
+  const dockGemTotal = dockMerchant
+    ? Object.values(dockMerchant.gems || {}).reduce((a, b) => a + b, 0)
+    : 0;
+  const dockIsCurrent = dockMerchant && currentPlayer?.id === dockMerchant.id;
+
+  return (
+    <div className="steam-tabletop">
+      <VelvetAmbience />
+      <TabletopEffectsLayer
+        flyingChips={flyingChips}
+        flyingCards={flyingCards}
+        sparkles={sparkles}
+        scorePops={scorePops}
+        banner={fxBanner}
+      />
+
+      {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
+
+      {/* MAIN VELVET PLAYMAT: Left Opponents | Center 3x5 Market | Right Poker Chips | Far-Right Nobles */}
+      <main className="steam-playmat" aria-label="스플렌더 게임 테이블">
+        {/* 1. LEFT EDGE: OPPONENT PORTRAIT PLAQUES */}
+        <aside className="steam-opponents-col" aria-label="상대 상인 현황">
+          {leftOpponents.map((opp, idx) => (
+            <OpponentPortraitPlaque
+              key={opp.id}
+              player={opp}
+              index={idx + 1}
+              isActive={gameState.status === 'playing' && currentPlayer?.id === opp.id}
+              isInspected={inspectedPlayerId === opp.id}
+              actionWhisper={playerWhispers[opp.id] || null}
+              scorePulse={scorePulseIds.includes(opp.id)}
+              onClick={
+                sandboxMode === 'spec' || viewMode === 'tv'
+                  ? () => setInspectedPlayerId(opp.id)
+                  : undefined
+              }
+            />
+          ))}
+        </aside>
+
+        {/* 2. CENTER: 3x5 DEVELOPMENT CARD MARKET ON OPEN VELVET */}
+        <section className="steam-market-zone" aria-label="개발 카드 시장">
+          {[3, 2, 1].map((tier) => (
+            <div key={tier} className="steam-tier-row" data-tier={tier}>
+              <SteamDeckStack3D
+                tier={tier}
+                count={gameState.deckCounts?.[tier] ?? 0}
+                interactive={interactiveBoard}
+                disabled={!interactiveBoard || (humanPlayer?.reserved?.length || 0) >= 3}
+                onClick={() => handleReserveCard(null, tier)}
+              />
+              {(gameState.board?.[tier] || []).map((card) => {
+                const isFocused = Object.values(gameState.focusMap || {}).includes(card.id);
+                const affordable = interactiveBoard && canAffordCard(humanPlayer, card);
+                const isNew = newlyDealtIds.includes(card.id);
+                return (
+                  <DevelopmentCard
+                    key={card.id}
+                    card={card}
+                    affordable={affordable}
+                    isFocused={isFocused}
+                    isNew={isNew}
+                    interactive={viewMode === 'sandbox'}
+                    onClick={
+                      viewMode === 'sandbox'
+                        ? () => setInspectCard({ card, fromReserved: false })
+                        : undefined
+                    }
+                  />
+                );
+              })}
             </div>
-          )}
-        </>
+          ))}
+        </section>
+
+        {/* 3. RIGHT-CENTER: VERTICAL 3D STACKED POKER CHIP COLUMN (Steam Order) */}
+        <section className="steam-chip-bank-col" aria-label="보석 은행 토큰">
+          {STEAM_TOKEN_ORDER.map((color) => {
+            const count = gameState.gems?.[color] || 0;
+            const picked = selectedGems.filter((c) => c === color).length;
+            return (
+              <PokerChipStack3D
+                key={color}
+                color={color}
+                count={count}
+                selectedCount={picked}
+                interactive={interactiveBoard}
+                disabled={!interactiveBoard}
+                onClick={() => handleToggleGemPick(color)}
+              />
+            );
+          })}
+        </section>
+
+        {/* 4. FAR-RIGHT: VERTICAL SQUARE NOBLE TILES */}
+        <aside className="steam-nobles-col" aria-label="귀족 타일">
+          {(gameState.nobles || []).map((noble, idx) => (
+            <NobleTile key={noble.id} noble={noble} index={idx} />
+          ))}
+        </aside>
+      </main>
+
+      {/* FLOATING GEM SELECTION CONFIRM BAR (only visible when picking chips) */}
+      {interactiveBoard && selectedGems.length > 0 && (
+        <div className="floating-gem-bar" role="region" aria-label="선택한 보석 확정">
+          <div className="floating-gem-picks">
+            {selectedGems.map((color, idx) => (
+              <button
+                key={`${color}-${idx}`}
+                type="button"
+                className={`picked-chip-pill cost-${color}`}
+                onClick={() => removePickedGemAt(idx)}
+                title="클릭하여 선택 해제"
+              >
+                <FacetedGemSvg color={color} size={15} />
+                <span>{GEM_META[color]?.short}</span>
+                <X size={12} />
+              </button>
+            ))}
+          </div>
+
+          <span className="floating-gem-hint">
+            {selectedGems.length === 2 && selectedGems[0] === selectedGems[1]
+              ? '같은 색 2개 채집'
+              : `서로 다른 색 ${selectedGems.length}/3`}
+          </span>
+
+          <button
+            type="button"
+            className="floating-confirm-btn"
+            disabled={!canSubmitGemPick}
+            onClick={handleConfirmGems}
+            data-confirm-gems="true"
+          >
+            보석 가져오기
+          </button>
+
+          <button
+            type="button"
+            className="floating-cancel-btn"
+            onClick={() => setSelectedGems([])}
+          >
+            취소
+          </button>
+        </div>
       )}
 
-      {/* Card Action Detail Modal */}
-      {selectedCardForModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center',
-          alignItems: 'center', zIndex: 2000, padding: '20px'
-        }}>
-          <div className="glass gold-metallic-highlight" style={{ padding: '20px', width: '100%', maxWidth: '320px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className="title-font" style={{ color: 'var(--color-gold)' }}>카드 정보</h3>
-              <button 
-                onClick={handleCloseModal}
-                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
+      {/* CHRONICLE LOG POPOVER (cleanly toggled from bottom dock) */}
+      {showChronicle && (
+        <aside className="chronicle-popover" aria-label="길드 기록">
+          <div className="chronicle-header">
+            <span>길드 연대기</span>
+            <button
+              type="button"
+              className="dock-icon-btn"
+              style={{ width: 28, height: 28 }}
+              onClick={() => setShowChronicle(false)}
+              aria-label="길드 기록 닫기"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="chronicle-list">
+            {(gameState.logs || []).length === 0 ? (
+              <div className="chronicle-item">아직 기록이 없습니다.</div>
+            ) : (
+              gameState.logs.map((entry, idx) => {
+                const key = typeof entry === 'object' && entry?.id ? entry.id : idx;
+                const time = typeof entry === 'object' ? entry?.time : null;
+                const text = typeof entry === 'string' ? entry : entry?.text || '';
+                return (
+                  <div key={key} className="chronicle-item">
+                    {time && (
+                      <span style={{ color: 'var(--ink-muted)', marginRight: '6px', fontSize: '0.72rem' }}>
+                        [{time}]
+                      </span>
+                    )}
+                    <span>{text}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* BOTTOM HORIZONTAL MERCHANT DOCK */}
+      <footer
+        className={`steam-bottom-dock ${interactiveBoard ? 'is-my-turn' : ''}`}
+        aria-label="내 상인 트레이"
+        data-dock-merchant={dockMerchant?.id || ''}
+      >
+        {/* Dock Left: Merchant Portrait & Prestige Medal */}
+        {dockMerchant ? (
+          <div className="dock-merchant-identity">
+            <div className="dock-avatar-frame">
+              <img
+                src={getPlayerPortrait(dockMerchant, 0)}
+                alt={dockMerchant.name}
+                className="dock-avatar-img"
+              />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              {/* Detailed Card Preview */}
-              <div 
-                className={`dev-card tier-${selectedCardForModal.level}`}
-                style={{ ...getCardStyle(selectedCardForModal), width: '130px', height: '182px', transform: 'none', cursor: 'default', padding: '12px' }}
-              >
-                <div className="card-header">
-                  {selectedCardForModal.points > 0 ? (
-                    <div className="pv-shield" style={{ width: '32px', height: '36px', fontSize: '1.25rem' }}>{selectedCardForModal.points}</div>
-                  ) : (
-                    <div style={{ width: '32px', height: '36px' }} />
-                  )}
-                  <div className={`card-gem-bonus gem-${selectedCardForModal.color}`} style={{ width: '24px', height: '24px', fontSize: '0.75rem', color: selectedCardForModal.color === 'white' ? '#000' : '#fff' }}>
-                    {GEM_SYMBOLS[selectedCardForModal.color]}
-                  </div>
-                </div>
-                <div className="card-costs" style={{ gap: '4px', marginTop: '12px' }}>
-                  {Object.entries(selectedCardForModal.cost).map(([color, cost]) => (
-                    <div key={color} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div className={`gem-token-small gem-${color}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}>
-                        {GEM_SYMBOLS[color]}
-                      </div>
-                      <span style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>{cost}</span>
-                    </div>
-                  ))}
+            <div className="dock-merchant-info">
+              <div className="dock-name-row">
+                <span className="dock-merchant-name">
+                  {dockMerchant.name.replace(' (AI)', '')}
+                </span>
+                <div
+                  className={`prestige-medal is-sm ${scorePulseIds.includes(dockMerchant.id) ? 'is-score-pop' : ''}`}
+                  aria-label={`현재 승점 ${dockMerchant.points}점`}
+                >
+                  {dockMerchant.points}
                 </div>
               </div>
+              <span className={`dock-turn-status ${interactiveBoard ? 'is-turn' : ''}`}>
+                {gameState.status === 'finished'
+                  ? '대전 종료'
+                  : interactiveBoard
+                    ? '당신의 턴 · 보석·카드 선택'
+                    : sandboxMode === 'spec'
+                      ? `AI 관전 중 · ${currentPlayer?.name?.replace(' (AI)', '') || ''} 차례`
+                      : dockIsCurrent
+                        ? '진행 중'
+                        : `${currentPlayer?.name?.replace(' (AI)', '') || '상대'} 차례`}
+              </span>
             </div>
+          </div>
+        ) : (
+          <div />
+        )}
 
-            {/* Calculations info */}
-            <div>
-              <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginBottom: '8px' }}>
-                {canAffordCard(me, selectedCardForModal) ? '구매 가능합니다!' : '보석이 부족하여 구매할 수 없습니다.'}
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button 
-                className="btn-gold"
-                disabled={!isMyTurn || !canAffordCard(me, selectedCardForModal)}
-                onClick={() => handleBuyCard(selectedCardForModal.id)}
-              >
-                구매하기
-              </button>
-              
-              {/* Only allow reserving if the card is not already reserved */}
-              {!me.reserved.some(c => c.id === selectedCardForModal.id) && (
-                <button 
-                  className="btn-outline"
-                  disabled={!isMyTurn || me.reserved.length >= 3}
-                  onClick={() => handleReserveCard(selectedCardForModal.id)}
+        {/* Dock Center: 5 Bonus Card Stacks + Held Chips + Gold Joker */}
+        {dockMerchant ? (
+          <div className="dock-economy-board">
+            {GEM_COLORS.map((color) => {
+              const disc = dockMerchant.discounts?.[color] || 0;
+              const chip = dockMerchant.gems?.[color] || 0;
+              return (
+                <div
+                  key={color}
+                  className="dock-color-slot"
+                  data-dock-color={color}
+                  title={`${GEM_META[color].label} · 영구 보너스 ${disc}, 보유 보석 ${chip}`}
                 >
-                  킵하기 (Reserve)
-                </button>
-              )}
-              
-              <button 
-                onClick={handleCloseModal}
-                style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', padding: '6px' }}
+                  <div className={`dock-bonus-card cost-${color} ${disc === 0 ? 'is-zero' : ''} numeric`}>
+                    {disc}
+                  </div>
+                  <div className="dock-chip-pill">
+                    <span className={`dock-chip-circle cost-${color} ${chip === 0 ? 'is-zero' : ''} numeric`}>
+                      {chip}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div
+              className="dock-gold-slot"
+              data-dock-gold="true"
+              title={`황금 조커 토큰 ${dockMerchant.gems?.gold || 0}개`}
+            >
+              <span className="dock-gold-label">황금</span>
+              <span
+                className={`dock-chip-circle cost-gold ${(dockMerchant.gems?.gold || 0) === 0 ? 'is-zero' : ''} numeric`}
+              >
+                {dockMerchant.gems?.gold || 0}
+              </span>
+              <span className={`dock-cap-readout numeric ${dockGemTotal > 10 ? 'is-over' : ''}`}>
+                보석 {dockGemTotal}/10
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div />
+        )}
+
+        {/* Dock Right-Center: 3 Reserved Card Mini-Slots */}
+        <div className="dock-reserved-tray" data-dock-reserved="true" aria-label="킵한 카드 슬롯">
+          {[0, 1, 2].map((slotIdx) => {
+            const rCard = dockMerchant?.reserved?.[slotIdx];
+            if (!rCard) {
+              return (
+                <div key={slotIdx} className="dock-reserved-empty" aria-label={`빈 킵 슬롯 ${slotIdx + 1}`}>
+                  <Bookmark size={14} />
+                  <span>킵 {slotIdx + 1}</span>
+                </div>
+              );
+            }
+            const canBuyRes =
+              interactiveBoard &&
+              dockMerchant?.id === humanPlayer?.id &&
+              canAffordCard(humanPlayer, rCard);
+            return (
+              <DevelopmentCard
+                key={rCard.id + slotIdx}
+                card={rCard}
+                compact
+                affordable={canBuyRes}
+                interactive={viewMode === 'sandbox' && rCard.id !== 'secret'}
+                onClick={
+                  viewMode === 'sandbox' && rCard.id !== 'secret'
+                    ? () => setInspectCard({ card: rCard, fromReserved: true })
+                    : undefined
+                }
+              />
+            );
+          })}
+        </div>
+
+        {/* Dock Far-Right: Compact Tabletop Utility Controls */}
+        <div className="dock-utils">
+          <button
+            type="button"
+            className={`dock-icon-btn ${muted ? '' : 'is-active'}`}
+            onClick={() => setMuted((m) => !m)}
+            title={muted ? '효과음 켜기' : '효과음 끄기'}
+            aria-label={muted ? '효과음 켜기' : '효과음 끄기'}
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+
+          <button
+            type="button"
+            className={`dock-icon-btn ${showChronicle ? 'is-active' : ''}`}
+            onClick={() => setShowChronicle((v) => !v)}
+            title="길드 연대기 (기록)"
+            aria-label="길드 기록 열기"
+          >
+            <ScrollText size={18} />
+          </button>
+
+          {confirmRestart ? (
+            <div className="dock-confirm-inline">
+              <span>재시작?</span>
+              <button
+                type="button"
+                className="dock-confirm-yes"
+                onClick={() => {
+                  setConfirmRestart(false);
+                  setSelectedGems([]);
+                  setInspectCard(null);
+                  socket.emit('restart-game');
+                }}
+              >
+                확인
+              </button>
+              <button
+                type="button"
+                className="dock-confirm-no"
+                onClick={() => setConfirmRestart(false)}
               >
                 취소
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="dock-icon-btn"
+              onClick={() => setConfirmRestart(true)}
+              title="새 게임 다시 시작"
+              aria-label="새 게임 다시 시작"
+            >
+              <RotateCcw size={18} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="dock-icon-btn"
+            onClick={() => {
+              setSelectedGems([]);
+              setInspectCard(null);
+              setShowChronicle(false);
+              setConfirmRestart(false);
+              setViewMode('selector');
+            }}
+            title="설정 화면으로 돌아가기"
+            aria-label="설정 화면으로 돌아가기"
+          >
+            <Home size={18} />
+          </button>
+        </div>
+      </footer>
+
+      {/* CARD DETAIL / ACTION MODAL */}
+      {inspectCard && (
+        <CardActionModal
+          card={inspectCard.card}
+          fromReserved={inspectCard.fromReserved}
+          player={humanPlayer || dockMerchant}
+          canAct={interactiveBoard}
+          onBuy={() => handleBuyCard(inspectCard.card)}
+          onReserve={() => handleReserveCard(inspectCard.card)}
+          onClose={() => setInspectCard(null)}
+        />
+      )}
+
+      {/* EXCESS GEM RETURN MODAL (>10 TOKENS) */}
+      {mustReturnGems && humanPlayer && (
+        <div className="steam-modal-backdrop" role="dialog" aria-modal="true" aria-label="초과 보석 반납">
+          <div className="steam-modal-card">
+            <div className="modal-header-row">
+              <h2 className="modal-title">보석 10개 초과 반납</h2>
+              <span className="numeric" style={{ color: 'var(--gold-bright)', fontWeight: 700 }}>
+                {selectedReturnTotal} / {excessToReturn}개 선택
+              </span>
+            </div>
+            <p style={{ fontSize: '0.88rem', color: 'var(--ink-secondary)' }}>
+              보유 보석은 최대 10개까지입니다. 반납할 보석 {excessToReturn}개를 선택하세요.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: '10px' }}>
+              {ALL_GEM_COLORS.map((color) => {
+                const held = humanPlayer.gems?.[color] || 0;
+                const picked = returnSelection[color] || 0;
+                if (held === 0) return null;
+                return (
+                  <div key={color} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                    <GemChip
+                      color={color}
+                      count={held - picked}
+                      selectedCount={picked}
+                      interactive
+                      onClick={() => adjustReturnColor(color, 1)}
+                    />
+                    {picked > 0 && (
+                      <button
+                        type="button"
+                        className="floating-cancel-btn"
+                        style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+                        onClick={() => adjustReturnColor(color, -1)}
+                      >
+                        -1
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="btn-gilded-primary"
+              disabled={selectedReturnTotal !== excessToReturn}
+              onClick={handleSubmitGemReturn}
+            >
+              <Check size={18} /> 선택한 보석 반납하기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* VICTORY OVERLAY */}
+      {gameState.status === 'finished' && (
+        <div className="steam-modal-backdrop" role="dialog" aria-modal="true" aria-label="게임 결과">
+          <div className="victory-modal-card">
+            <Trophy size={44} color="#f5d782" />
+            <h2 className="setup-rule-title">
+              {gameState.winner?.name?.replace(' (AI)', '') || '승리자'} 승리!
+            </h2>
+            <p style={{ fontSize: '0.92rem', color: 'var(--ink-secondary)' }}>
+              르네상스 최고의 보석 길드 거장이 탄생했습니다.
+            </p>
+
+            <div className="victory-standings">
+              {[...players]
+                .sort((a, b) => b.points - a.points || a.cardCount - b.cardCount)
+                .map((p, idx) => (
+                  <div
+                    key={p.id}
+                    className={`victory-row ${p.id === gameState.winner?.id ? 'is-winner' : ''}`}
+                  >
+                    <span style={{ fontWeight: 700 }}>
+                      {idx + 1}위 · {p.name.replace(' (AI)', '')}
+                    </span>
+                    <span className="numeric" style={{ color: 'var(--gold-bright)', fontWeight: 800 }}>
+                      {p.points}점 (카드 {p.cardCount}장)
+                    </span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="victory-actions">
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                onClick={() => socket.emit('restart-game')}
+              >
+                다시 대전하기
+              </button>
+              <button
+                type="button"
+                className="btn-gilded-secondary"
+                onClick={() => setViewMode('selector')}
+              >
+                처음으로
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
-    );
-  };
+  );
+}
 
-  if (view === 'tv') {
-    return renderTVView(false);
-  }
+function CardActionModal({
+  card,
+  fromReserved,
+  player,
+  canAct,
+  onBuy,
+  onReserve,
+  onClose,
+}) {
+  const { items, goldNeeded, affordable } = getCardPaymentBreakdown(player, card);
+  const canReserveMore = !fromReserved && (player?.reserved?.length || 0) < 3;
 
-  if (view === 'player') {
-    return renderPlayerView(false);
-  }
-
-  if (view === 'sandbox') {
-    return (
-      <div className="sandbox-container">
-        <div className="sandbox-left-panel">
-          {renderTVView(true)}
+  return (
+    <div
+      className="steam-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="개발 카드 상세"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="steam-modal-card">
+        <div className="modal-header-row">
+          <h2 className="modal-title">
+            {fromReserved ? '킵한 개발 카드' : `${card.level}단계 개발 카드`} · {GEM_META[card.color]?.label}
+          </h2>
+          <button
+            type="button"
+            className="dock-icon-btn"
+            style={{ width: 30, height: 30 }}
+            onClick={onClose}
+            aria-label="창 닫기"
+          >
+            <X size={16} />
+          </button>
         </div>
-        <div className="sandbox-right-panel">
-          <div className="sandbox-player-tabs">
-            {players.map(p => {
-              const isCurrent = players[currentPlayerIndex]?.id === p.id;
-              const isActive = sandboxActivePlayerId === p.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    setSandboxActivePlayerId(p.id);
-                    socket.emit('unfocus-card', { playerId: activeId });
-                  }}
-                  className={`sandbox-tab ${isActive ? 'active' : ''} ${isCurrent ? 'current-turn animate-pulse' : ''}`}
-                  style={{ position: 'relative' }}
-                >
-                  {p.name}
-                  {isCurrent && (
-                    <span style={{ 
-                      display: 'inline-block', 
-                      width: '8px', 
-                      height: '8px', 
-                      borderRadius: '50%', 
-                      background: 'var(--gem-red)', 
-                      marginLeft: '6px' 
-                    }} />
-                  )}
-                </button>
-              );
-            })}
+
+        <div className="modal-card-preview-row">
+          <DevelopmentCard card={card} affordable={affordable} />
+          <div className="modal-cost-breakdown">
+            <div style={{ fontSize: '0.82rem', color: 'var(--gold-primary)', fontWeight: 700 }}>
+              필요 보석 (할인 적용)
+            </div>
+            {items.map((item) => (
+              <div key={item.color} className="modal-cost-line">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <FacetedGemSvg color={item.color} size={16} />
+                  <span>{GEM_META[item.color]?.short}</span>
+                </span>
+                <span className={`numeric ${item.shortfall === 0 ? 'modal-cost-ok' : 'modal-cost-short'}`}>
+                  보유 {item.held} / 필요 {item.net}
+                  {item.discount > 0 ? ` (-${item.discount})` : ''}
+                </span>
+              </div>
+            ))}
+            {goldNeeded > 0 && (
+              <div className="modal-cost-line">
+                <span style={{ color: 'var(--gold-bright)' }}>필요 황금 조커</span>
+                <span className={`numeric ${affordable ? 'modal-cost-ok' : 'modal-cost-short'}`}>
+                  {goldNeeded}개 (보유 {player?.gems?.gold || 0})
+                </span>
+              </div>
+            )}
           </div>
-          <div className="sandbox-controller-wrapper">
-            {renderPlayerView(true)}
-          </div>
+        </div>
+
+        <div className={`modal-actions-row ${fromReserved ? 'is-single' : ''}`}>
+          <button
+            type="button"
+            className="modal-btn-buy"
+            disabled={!canAct || !affordable}
+            onClick={onBuy}
+            data-action-buy="true"
+          >
+            <ShoppingBag size={16} />
+            {affordable ? '구매하기' : '보석 부족'}
+          </button>
+
+          {!fromReserved && (
+            <button
+              type="button"
+              className="modal-btn-reserve"
+              disabled={!canAct || !canReserveMore}
+              onClick={onReserve}
+              data-action-reserve="true"
+            >
+              <Bookmark size={16} />
+              {canReserveMore ? '킵하기 (+황금 1)' : '킵 슬롯 가득 참'}
+            </button>
+          )}
         </div>
       </div>
-    );
-  }
-
-  return null;
+    </div>
+  );
 }

@@ -49,6 +49,11 @@ function getMaskedState(playerId = null) {
     currentPlayerIndex: game.currentPlayerIndex,
     nobles: game.nobles,
     board: game.board,
+    deckCounts: {
+      1: game.decks[1]?.length || 0,
+      2: game.decks[2]?.length || 0,
+      3: game.decks[3]?.length || 0
+    },
     gems: game.gems,
     logs: game.logs,
     winner: game.winner,
@@ -87,10 +92,11 @@ function broadcastState() {
 
   // Sandbox View gets the complete unmasked state
   io.to('sandbox').emit('state-update', getMaskedState('sandbox'));
+  const sandboxSockets = io.sockets.adapter.rooms.get('sandbox');
 
-  // Each player gets their own customized state
+  // Each player gets their own customized state (skip if already delivered via sandbox room)
   for (const [pId, session] of sessions.entries()) {
-    if (session.socketId) {
+    if (session.socketId && !sandboxSockets?.has(session.socketId)) {
       io.to(session.socketId).emit('state-update', getMaskedState(pId));
     }
   }
@@ -237,14 +243,52 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  socket.on('start-sandbox', ({ mode = 'pve', count = 3, playerId: humanId, playerName: humanName }) => {
+    game = new SplendorGame();
+    sessions.clear();
+    socket.join('sandbox');
+
+    const totalPlayers = count === 4 ? 4 : 3;
+    if (mode === 'pve' && humanId) {
+      const cleanName = (humanName || '').trim() || '나 (상인)';
+      game.addPlayer(humanId, cleanName);
+      sessions.set(humanId, { name: cleanName, socketId: socket.id });
+      const aiNames = ['로렌초 (AI)', '베아트리체 (AI)', '코시모 (AI)'];
+      for (let i = 0; i < totalPlayers - 1; i++) {
+        const aiId = `sandbox_ai${i + 1}`;
+        game.addPlayer(aiId, aiNames[i]);
+        const added = game.players.find((p) => p.id === aiId);
+        if (added) added.isAi = true;
+      }
+    } else {
+      const aiNames = ['로렌초 (AI)', '베아트리체 (AI)', '코시모 (AI)', '이사벨라 (AI)'];
+      for (let i = 0; i < totalPlayers; i++) {
+        const aiId = `sandbox_ai${i + 1}`;
+        game.addPlayer(aiId, aiNames[i]);
+        const added = game.players.find((p) => p.id === aiId);
+        if (added) added.isAi = true;
+      }
+    }
+
+    game.start();
+    broadcastState();
+  });
+
   socket.on('restart-game', () => {
     const playersBackup = [...game.players];
     game = new SplendorGame();
-    // Add players back in
+    // Add players back in while preserving AI status
     for (const p of playersBackup) {
-      game.addPlayer(p.id, p.name);
+      const addedOk = game.addPlayer(p.id, p.name);
+      if (addedOk) {
+        const added = game.players.find(pl => pl.id === p.id);
+        if (added) added.isAi = !!p.isAi;
+      }
     }
-    game.log('Game reset by player.');
+    if (playersBackup.length >= 2) {
+      game.start();
+    }
+    game.log('새 게임이 시작되었습니다.');
     broadcastState();
   });
 
@@ -489,17 +533,30 @@ function aiGetMissingGemsCount(player, card) {
   return { total, colors };
 }
 
-// Serve Vite production build static assets
-app.use(express.static(path.join(__dirname, '../dist')));
+async function startServer() {
+  const isProd = process.env.NODE_ENV === 'production';
 
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true, hmr: false },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    app.use(express.static(path.join(__dirname, '../dist')));
+    app.get(/.*/, (req, res) => {
+      res.sendFile(path.join(__dirname, '../dist/index.html'));
+    });
+  }
 
-httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`=============================================`);
-  console.log(`Splendor Local Server is running!`);
-  console.log(`TV View: http://localhost:${PORT}`);
-  console.log(`Mobile View: http://${LOCAL_IP}:${PORT}`);
-  console.log(`=============================================`);
-});
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`=============================================`);
+    console.log(`Splendor Server is running (${isProd ? 'production' : 'development'})!`);
+    console.log(`TV View: http://localhost:${PORT}`);
+    console.log(`Mobile View: http://${LOCAL_IP}:${PORT}`);
+    console.log(`=============================================`);
+  });
+}
+
+startServer();

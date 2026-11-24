@@ -1,46 +1,85 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Outfit:wght@300;400;500;600;700&display=swap');
+/* Locally embedded SB 어그로체 (Sandbox Network — web embedding permitted) */
+@font-face {
+  font-family: 'Aggravo';
+  src: url('/fonts/SBAggroL.woff') format('woff');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Aggravo';
+  src: url('/fonts/SBAggroM.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Aggravo';
+  src: url('/fonts/SBAggroB.woff') format('woff');
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   /* Fonts */
-  --font-display: 'Cinzel', serif;
-  --font-sans: 'Outfit', sans-serif;
+  --font-display: 'Cormorant Garamond', 'Aggravo', Georgia, serif;
+  --font-serif-kr: 'Aggravo', 'Cormorant Garamond', sans-serif;
+  --font-sans: 'Aggravo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-num: 'Aggravo', 'Plus Jakarta Sans', sans-serif;
 
-  /* Premium Dark Theme */
-  --bg-dark: #0a0c10;
-  --bg-card: rgba(16, 19, 26, 0.4);
-  --bg-card-hover: rgba(22, 26, 36, 0.6);
-  --border-color: rgba(212, 175, 55, 0.25);
-  --border-color-glow: rgba(212, 175, 55, 0.65);
+  /* Steam Splendor Royal Mauve-Plum Velvet Palette */
+  --velvet-center: #674f63;
+  --velvet-mid: #493448;
+  --velvet-deep: #291a2a;
+  --velvet-edge: #1b111d;
 
-  /* Champagne Gold */
-  --color-gold: #d4af37;
-  --color-gold-light: #f3e5ab;
-  --color-gold-dark: #aa801e;
+  /* Wood & Parchment Surfaces */
+  --dock-wood-top: #372330;
+  --dock-wood-bot: #1e121b;
+  --parchment-dark: rgba(34, 21, 33, 0.90);
+  --card-header-ivory: rgba(255, 252, 246, 0.84);
 
-  /* Gems Colors - Base & Skeuomorphic Highlights */
-  --gem-white: #e2e8f0;
-  --gem-white-light: #ffffff;
-  --gem-white-dark: #94a3b8;
-  
-  --gem-blue: #3b82f6;
-  --gem-blue-light: #93c5fd;
-  --gem-blue-dark: #1d4ed8;
-  
-  --gem-green: #10b981;
-  --gem-green-light: #6ee7b7;
-  --gem-green-dark: #047857;
-  
-  --gem-red: #ef4444;
-  --gem-red-light: #fca5a5;
-  --gem-red-dark: #b91c1c;
-  
-  --gem-black: #1e293b;
-  --gem-black-light: #475569;
-  --gem-black-dark: #0f172a;
-  
-  --gem-gold: #eab308;
+  /* Burnished Florentine Gold */
+  --gold-bright: #fff1c7;
+  --gold-primary: #e2bd6d;
+  --gold-mid: #c59843;
+  --gold-deep: #7a551c;
+  --gold-line: rgba(226, 189, 109, 0.44);
+  --gold-line-strong: rgba(244, 214, 138, 0.85);
+
+  /* Text */
+  --ink-primary: #fbf6ee;
+  --ink-secondary: #dfd0dc;
+  --ink-muted: #b69fb2;
+
+  /* Authentic Steam Gem & Chip Tones */
+  --gem-white: #eef2f6;
+  --gem-white-rim: #cbd5e1;
+  --gem-white-ink: #1e2430;
+
+  --gem-blue: #1e62c7;
+  --gem-blue-light: #60a5fa;
+  --gem-blue-dark: #10326e;
+
+  --gem-green: #188a55;
+  --gem-green-light: #4ade80;
+  --gem-green-dark: #0b492c;
+
+  --gem-red: #c92a2a;
+  --gem-red-light: #f87171;
+  --gem-red-dark: #6e1212;
+
+  /* Steam Onyx is rich espresso-chocolate brown, not flat pitch black */
+  --gem-black: #4d3024;
+  --gem-black-light: #8a6250;
+  --gem-black-dark: #26140d;
+
+  --gem-gold: #df9f18;
   --gem-gold-light: #fde047;
-  --gem-gold-dark: #a16207;
+  --gem-gold-dark: #805207;
 }
 
 * {
@@ -50,541 +89,3154 @@
   user-select: none;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-dark);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(13, 20, 38, 0.8) 0px, transparent 60%),
-    radial-gradient(at 50% 0%, rgba(45, 34, 15, 0.5) 0px, transparent 60%),
-    radial-gradient(at 100% 100%, rgba(8, 12, 24, 0.8) 0px, transparent 60%);
+  font-weight: 300;
+  color: var(--ink-primary);
+  background-color: var(--velvet-deep);
+  background-image:
+    radial-gradient(ellipse 68% 62% at 50% 42%, var(--velvet-center) 0%, var(--velvet-mid) 52%, var(--velvet-deep) 84%, var(--velvet-edge) 100%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 240, 220, 0.018) 0px,
+      rgba(255, 240, 220, 0.018) 2px,
+      transparent 2px,
+      transparent 14px
+    );
   background-attachment: fixed;
-  color: #f1f5f9;
-  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
-/* Scrollbars */
+button,
+input {
+  font-family: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Enforce thick, heavy bold lining tabular numerals across every game number */
+.numeric,
+.steam-card-pv,
+.steam-cost-pip,
+.steam-chip-count,
+.steam-deck-count,
+.steam-noble-pv,
+.steam-noble-req,
+.prestige-medal,
+.setup-seal-num,
+.dock-econ-num,
+.dock-bonus-card,
+.dock-chip-circle,
+.opp-mini-card,
+.opp-mini-chip,
+.clay-chip-count,
+.steam-chip-pick-badge,
+.fx-score-pop {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-style: normal;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+
+/* Custom subtle scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(20, 10, 20, 0.35);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-gold-dark);
+  background: rgba(226, 189, 109, 0.45);
   border-radius: 3px;
 }
 
-/* Glassmorphism utility */
-.glass {
-  position: relative;
-  background: var(--bg-card);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 16px;
-  box-shadow: 
-    0 30px 60px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+/* =========================================================
+   EMBLEM & SHARED ORNAMENTS
+========================================================= */
+.splendor-emblem {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
 }
 
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.4), rgba(255, 255, 255, 0.05) 50%, rgba(212, 175, 55, 0.1));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
+.emblem-crown-svg {
+  width: 96px;
+  height: 46px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.6));
 }
 
-.glass-glow {
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.25);
-}
-.glass-glow::before {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.8), rgba(255, 255, 255, 0.1) 50%, rgba(212, 175, 55, 0.3));
+.splendor-emblem.is-compact .emblem-crown-svg {
+  width: 44px;
+  height: 22px;
 }
 
-/* Gold Metallic Highlights */
-.gold-metallic-highlight {
-  /* Simplified for elegance rather than heavy old-school gradients */
-  background: linear-gradient(180deg, rgba(20, 24, 34, 0.7) 0%, rgba(10, 12, 16, 0.9) 100%);
-  border: 1px solid rgba(212, 175, 55, 0.3) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 20px rgba(212, 175, 55, 0.1) !important;
-}
-
-/* Typography */
-.title-font {
+.emblem-wordmark {
   font-family: var(--font-display);
-  letter-spacing: 0.1em;
+  font-style: italic;
+  font-weight: 700;
+  font-size: clamp(3.5rem, 4.8vw, 4.45rem);
+  letter-spacing: 0.03em;
+  margin-top: -6px;
+  background: linear-gradient(180deg, #fff6d9 0%, #e7c270 52%, #b5832c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 8px rgba(15, 6, 16, 0.88));
 }
 
-/* Victory Points Shield Frame */
-.pv-shield {
-  position: relative;
+.splendor-emblem.is-compact .emblem-wordmark {
+  font-size: 1.65rem;
+  margin-top: -2px;
+}
+
+.prestige-medal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 32px;
-  background: linear-gradient(135deg, #2d2417 0%, #17120b 100%);
-  border: 1.5px solid var(--color-gold);
-  border-radius: 0 0 14px 14px;
-  box-shadow: 0 3px 6px rgba(0,0,0,0.6), inset 0 1px 3px rgba(255,255,255,0.25);
-  color: var(--color-gold-light);
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 800;
-  line-height: 1;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 28%, #fff4c9 0%, #dfae4b 45%, #8b5b16 100%);
+  border: 2px solid #fff0be;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.65),
+    inset 0 2px 4px rgba(255, 255, 255, 0.55),
+    inset 0 -3px 5px rgba(74, 42, 6, 0.65);
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 1.48rem;
+  color: #fffdf7;
+  -webkit-text-stroke: 2.2px rgba(42, 22, 4, 0.92);
+  paint-order: stroke fill;
+  text-shadow:
+    0 2px 3px rgba(42, 22, 4, 0.92),
+    0 0 6px rgba(42, 22, 4, 0.72);
+  flex-shrink: 0;
 }
-.pv-shield::before {
+
+.prestige-medal.is-sm {
+  width: 40px;
+  height: 40px;
+  font-size: 1.32rem;
+  border-width: 1.8px;
+}
+
+.faceted-gem-svg {
+  display: block;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+
+/* =========================================================
+   STEAM SETUP / TITLE SCREEN (Full-Viewport Renaissance Stage)
+========================================================= */
+.setup-stage {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(18px, 2.4vh, 30px) clamp(24px, 3.6vw, 56px) clamp(14px, 2vh, 24px);
+  gap: clamp(16px, 2.2vh, 26px);
+  position: relative;
+  overflow: hidden;
+}
+
+.setup-stage > *:not(.velvet-ambience-layer):not(.steam-toast) {
+  position: relative;
+  z-index: 2;
+}
+
+.setup-top-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.setup-mode-tabs {
+  display: inline-flex;
+  background: rgba(22, 11, 24, 0.76);
+  border: 1.5px solid var(--gold-line);
+  border-radius: 12px;
+  padding: 5px;
+  gap: 6px;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 244, 210, 0.12);
+}
+
+.setup-tab-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 1.06rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.setup-tab-btn:hover {
+  color: var(--gold-bright);
+  background: rgba(226, 189, 109, 0.12);
+}
+
+.setup-tab-btn.is-active {
+  background: linear-gradient(180deg, rgba(226, 189, 109, 0.3) 0%, rgba(154, 108, 36, 0.38) 100%);
+  border-color: var(--gold-line-strong);
+  color: var(--gold-bright);
+  box-shadow: inset 0 1px 0 rgba(255, 245, 210, 0.34);
+}
+
+.setup-workspace {
+  width: 100%;
+  max-width: 1280px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) minmax(380px, 0.88fr);
+  gap: clamp(20px, 2.2vw, 32px);
+  align-items: stretch;
+}
+
+/* Left 2x2 Ornate Portrait Grid */
+.setup-portrait-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(16px, 1.6vw, 22px);
+}
+
+.setup-seat-card {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(54, 33, 52, 0.94) 0%, rgba(25, 14, 27, 0.97) 100%);
+  border: 2px solid var(--gold-line);
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 242, 205, 0.24);
+  padding: 14px 16px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: clamp(256px, 31vh, 294px);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.setup-seat-card:hover {
+  border-color: rgba(242, 207, 122, 0.78);
+  transform: translateY(-2px);
+}
+
+.setup-seat-card.is-human {
+  border-color: var(--gold-line-strong);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.64),
+    0 0 28px rgba(226, 189, 109, 0.2);
+}
+
+.setup-seat-portrait-wrap {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: clamp(174px, 21vh, 212px);
+  border-radius: 11px 11px 7px 7px;
+  overflow: hidden;
+  border: 1.5px solid rgba(226, 189, 109, 0.58);
+  background: #1b101c;
+}
+
+.setup-seat-portrait-wrap::after {
   content: '';
   position: absolute;
-  top: -3px;
-  left: -1.5px;
-  right: -1.5px;
-  height: 3px;
-  background: var(--color-gold);
-  border-radius: 3px 3px 0 0;
+  inset: auto 0 0 0;
+  height: 36%;
+  background: linear-gradient(180deg, transparent 0%, rgba(19, 10, 21, 0.55) 100%);
+  pointer-events: none;
 }
 
-/* Nobles */
-.noble-card {
-  aspect-ratio: 1 / 1;
-  width: 95px;
-  position: relative;
-  background: #111827;
-  border: 2px solid var(--color-gold);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 8px;
-  overflow: hidden;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: card-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.noble-card:hover {
-  transform: translateY(-4px) scale(1.02);
-}
-
-.noble-cost-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-/* Development Cards */
-.dev-card {
+.setup-seat-portrait {
   width: 100%;
-  aspect-ratio: 2.5 / 3.5;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: linear-gradient(160deg, #161e2b 0%, #0a0d14 100%);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  display: block;
+}
+
+.setup-seat-role {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  padding: 4px 11px;
+  border-radius: 6px;
+  background: rgba(20, 10, 21, 0.86);
+  border: 1px solid rgba(226, 189, 109, 0.65);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  letter-spacing: 0.04em;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+}
+
+.setup-seat-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 224, 178, 0.5);
+  background: rgba(26, 12, 22, 0.86);
+  color: var(--ink-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.setup-seat-remove:hover {
+  background: rgba(185, 28, 28, 0.88);
+}
+
+.setup-seat-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+}
+
+.setup-name-input {
+  width: 100%;
+  background: rgba(16, 9, 18, 0.78);
+  border: 1.5px solid rgba(226, 189, 109, 0.48);
+  border-radius: 9px;
+  padding: 9px 14px;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.setup-name-input:focus {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 0 3px rgba(226, 189, 109, 0.25);
+}
+
+.setup-seat-name {
+  font-family: var(--font-serif-kr);
+  font-size: 1.32rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+}
+
+.setup-seat-sub {
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+/* Empty 4th Seat (+) Golden Medallion Slot */
+.setup-seat-add {
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(46, 28, 45, 0.68) 0%, rgba(24, 13, 25, 0.84) 100%);
+  border: 2px dashed rgba(226, 189, 109, 0.52);
+  min-height: clamp(256px, 31vh, 294px);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 8px;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  cursor: pointer;
-  animation: card-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.dev-card:hover {
-  transform: translateY(-6px) scale(1.03);
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 
-    0 20px 40px -10px rgba(0, 0, 0, 0.7),
-    0 0 20px rgba(212, 175, 55, 0.15);
-}
-
-.dev-card:active {
-  transform: translateY(-2px) scale(0.98);
-}
-
-.dev-card.tier-1 {
-  border-left: 4px solid var(--gem-green);
-}
-.dev-card.tier-2 {
-  border-left: 4px solid var(--gem-blue);
-}
-.dev-card.tier-3 {
-  border-left: 4px solid var(--gem-red);
-}
-
-.dev-card.selected {
-  border-color: var(--color-gold);
-  box-shadow: 0 0 15px var(--border-color-glow);
-}
-
-/* Affordable glow pulse */
-.affordable-glow {
-  border: 1px solid var(--color-gold) !important;
-  animation: elegant-pulse 2.5s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes elegant-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
-  50% { box-shadow: 0 0 15px rgba(212, 175, 55, 0.3), inset 0 0 10px rgba(212, 175, 55, 0.1); }
-  100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
-}
-
-/* Dual-Screen Focus Highlighting classes */
-.card-focused-p0 { border: 2.5px solid #ef4444 !important; box-shadow: 0 0 20px rgba(239, 68, 68, 0.85) !important; animation: focus-pulse 1.2s infinite alternate ease-in-out !important; }
-.card-focused-p1 { border: 2.5px solid #3b82f6 !important; box-shadow: 0 0 20px rgba(59, 130, 246, 0.85) !important; animation: focus-pulse 1.2s infinite alternate ease-in-out !important; }
-.card-focused-p2 { border: 2.5px solid #10b981 !important; box-shadow: 0 0 20px rgba(16, 185, 129, 0.85) !important; animation: focus-pulse 1.2s infinite alternate ease-in-out !important; }
-.card-focused-p3 { border: 2.5px solid #eab308 !important; box-shadow: 0 0 20px rgba(234, 179, 8, 0.85) !important; animation: focus-pulse 1.2s infinite alternate ease-in-out !important; }
-
-@keyframes focus-pulse {
-  0% { transform: scale(1.01) translateY(-2px); }
-  100% { transform: scale(1.05) translateY(-6px); }
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--gold-primary);
+  transition: all 0.2s ease;
 }
-.card-points {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #f3f4f6;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+
+.setup-seat-add:hover {
+  border-style: solid;
+  border-color: var(--gold-bright);
+  background: linear-gradient(180deg, rgba(66, 42, 63, 0.8) 0%, rgba(34, 20, 35, 0.92) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.52);
 }
-.card-gem-bonus {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.25);
+
+.setup-add-medallion {
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  border: 2.5px solid rgba(226, 189, 109, 0.78);
+  background: radial-gradient(circle, rgba(226, 189, 109, 0.24) 0%, rgba(24, 12, 24, 0.65) 100%);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
-  font-weight: bold;
+  color: var(--gold-bright);
 }
 
-.card-costs {
+.setup-add-label {
+  font-family: var(--font-serif-kr);
+  font-size: 1.28rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.setup-add-hint {
+  font-size: 0.96rem;
+  color: var(--ink-secondary);
+}
+
+/* Right Ornate Rulebook Card */
+.setup-rulebook {
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(226, 189, 109, 0.18) 0%, transparent 56%),
+    linear-gradient(180deg, rgba(48, 29, 47, 0.96) 0%, rgba(22, 13, 24, 0.98) 100%);
+  border: 2px solid var(--gold-line-strong);
+  box-shadow:
+    0 24px 52px rgba(0, 0, 0, 0.68),
+    inset 0 0 0 6px rgba(20, 10, 20, 0.52),
+    inset 0 0 0 7.5px rgba(226, 189, 109, 0.3);
+  padding: clamp(28px, 3.2vh, 38px) clamp(26px, 2.4vw, 36px) clamp(24px, 2.8vh, 32px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  text-align: center;
+  gap: clamp(16px, 2vh, 24px);
+}
+
+.setup-rule-header {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.setup-rule-title {
+  font-family: var(--font-serif-kr);
+  font-size: clamp(1.85rem, 2.15vw, 2.15rem);
+  font-weight: 700;
+  color: var(--gold-bright);
+  letter-spacing: 0.04em;
+}
+
+.setup-rule-divider {
+  width: 82%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--gold-primary), transparent);
+}
+
+.setup-rule-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  font-family: var(--font-serif-kr);
+  font-size: 1.18rem;
+  color: var(--ink-primary);
+}
+
+.setup-rule-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(226, 189, 109, 0.18);
+}
+
+.setup-rule-key {
+  color: var(--ink-secondary);
+  font-size: 1.12rem;
+  font-weight: 500;
+}
+
+.setup-rule-val {
+  color: var(--gold-bright);
+  font-size: 1.32rem;
+  font-weight: 700;
+}
+
+.setup-victory-seal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+}
+
+.setup-seal-circle {
+  width: 108px;
+  height: 108px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 32% 28%, #fff6d2 0%, #e4b650 48%, #8f5c14 100%);
+  border: 3.5px solid #fff2c4;
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.68),
+    0 0 0 6px rgba(226, 189, 109, 0.16),
+    0 0 32px rgba(226, 189, 109, 0.34),
+    inset 0 2px 7px rgba(255, 255, 255, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setup-seal-num {
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 3.15rem;
+  color: #fffef9;
+  -webkit-text-stroke: 3.5px rgba(56, 30, 5, 0.92);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 7px rgba(56, 30, 5, 0.9);
+}
+
+.setup-seal-caption {
+  font-family: var(--font-serif-kr);
+  font-size: 1.16rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  letter-spacing: 0.03em;
+}
+
+.setup-rulebook .btn-gilded-primary,
+.local-mode-card .btn-gilded-primary {
+  padding: 17px 28px;
+  border-radius: 12px;
+  font-size: 1.36rem;
+}
+
+.setup-control-hint {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  letter-spacing: 0.03em;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.btn-gilded-primary {
+  width: 100%;
+  padding: 13px 22px;
+  border-radius: 10px;
+  border: 1.5px solid #fff0be;
+  background: linear-gradient(180deg, #e7c06a 0%, #c18f35 55%, #9c6c1d 100%);
+  color: #201207;
+  font-family: var(--font-serif-kr);
+  font-size: 1.14rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 250, 230, 0.65);
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+
+.btn-gilded-primary:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+}
+
+.btn-gilded-primary:active {
+  transform: translateY(1px);
+}
+
+.btn-gilded-secondary {
+  padding: 9px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--gold-line);
+  background: rgba(34, 19, 34, 0.85);
+  color: var(--ink-primary);
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: all 0.16s ease;
+}
+
+.btn-gilded-secondary:hover {
+  border-color: var(--gold-bright);
+  background: rgba(58, 36, 57, 0.9);
+  color: var(--gold-bright);
+}
+
+.local-multi-grid {
+  width: 100%;
+  max-width: 1120px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+
+.local-mode-card {
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(50, 30, 48, 0.94) 0%, rgba(24, 13, 25, 0.97) 100%);
+  border: 2px solid var(--gold-line);
+  padding: 36px 34px;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 244, 210, 0.18);
+}
+
+.local-mode-card h3 {
+  font-family: var(--font-serif-kr);
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.local-mode-card p {
+  font-size: 1.08rem;
+  line-height: 1.68;
+  color: var(--ink-secondary);
+}
+
+/* =========================================================
+   FULL-BLEED STEAM SPLENDOR TABLETOP
+========================================================= */
+.steam-tabletop {
+  --dock-h: 120px;
+  --card-h: clamp(138px, calc((100vh - var(--dock-h) - 66px) / 3), 220px);
+  --card-w: calc(var(--card-h) * 0.7246);
+
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.steam-playmat {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr) 128px 122px;
+  gap: 14px;
+  padding: 12px 16px 10px;
+  align-items: center;
+  position: relative;
+  z-index: 5;
+}
+
+/* 1. Left Column: Opponent Portrait Plaques */
+.steam-opponents-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  min-height: 0;
+}
+
+.steam-opponent-plaque {
+  width: 100%;
+  text-align: left;
+  border-radius: 13px;
+  padding: 10px 11px 9px;
+  background: linear-gradient(180deg, rgba(44, 27, 43, 0.90) 0%, rgba(23, 13, 24, 0.94) 100%);
+  border: 1.5px solid rgba(226, 189, 109, 0.42);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+}
+
+.steam-opponent-plaque.is-clickable:hover {
+  border-color: var(--gold-primary);
+  transform: translateX(2px);
+}
+
+.steam-opponent-plaque.is-active {
+  border-color: var(--gold-bright);
+  box-shadow:
+    0 0 0 2px rgba(255, 240, 196, 0.35),
+    0 0 24px rgba(226, 189, 109, 0.42),
+    0 10px 22px rgba(0, 0, 0, 0.6);
+}
+
+.steam-opponent-plaque.is-inspected {
+  background: linear-gradient(180deg, rgba(64, 41, 61, 0.95) 0%, rgba(33, 19, 34, 0.97) 100%);
+}
+
+.opponent-portrait-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.opponent-avatar-frame {
+  position: relative;
+  width: 52px;
+  height: 58px;
+  border-radius: 26px 26px 8px 8px;
+  overflow: hidden;
+  border: 1.5px solid var(--gold-primary);
+  background: #1b101c;
+  flex-shrink: 0;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6);
+}
+
+.opponent-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+}
+
+.opponent-ai-crest {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(20, 10, 20, 0.84);
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}
+
+.opponent-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.opponent-name {
+  display: block;
+  font-family: var(--font-serif-kr);
+  font-size: 1.08rem;
+  font-weight: 500;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opponent-substats {
+  display: flex;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+}
+
+.opponent-turn-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--gold-bright);
+}
+
+.opponent-economy-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.opp-econ-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.opp-mini-card {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+}
+
+.opp-mini-card.is-spacer {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--gold-primary);
+  font-size: 0.84rem;
+}
+
+.opp-mini-chip {
+  width: 25px;
+  height: 25px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.86rem;
+  font-weight: 700;
+  border: 1.5px solid rgba(255, 255, 255, 0.82);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.opp-mini-card.is-zero,
+.opp-mini-chip.is-zero {
+  opacity: 0.28;
+}
+
+/* 2. Center Zone: 3x5 Development Card Market Directly on Velvet */
+.steam-market-zone {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.steam-tier-row {
+  display: grid;
+  grid-template-columns: repeat(5, var(--card-w));
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 3D Physical Stacked Deck Card */
+.steam-deck-slot {
+  width: var(--card-w);
+  height: var(--card-h);
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: block;
+}
+
+.steam-deck-slot.is-empty {
+  opacity: 0.3;
+}
+
+.steam-deck-body {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(244, 214, 146, 0.82);
+  /* Physical layered white card edge thickness on right & bottom */
+  box-shadow:
+    2px 2px 0 #ebe5da,
+    3px 3px 0 #8a7f74,
+    5px 5px 0 #e5dfd3,
+    6px 6px 0 #7b7065,
+    8px 8px 0 #dad3c6,
+    11px 14px 20px rgba(0, 0, 0, 0.65),
+    inset 0 0 0 1px rgba(255, 245, 210, 0.32);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.steam-deck-slot.is-interactive:hover .steam-deck-body {
+  transform: translate(-2px, -3px);
+  border-color: var(--gold-bright);
+  box-shadow:
+    3px 3px 0 #f2ece2,
+    4px 4px 0 #8a7f74,
+    6px 6px 0 #e5dfd3,
+    7px 7px 0 #7b7065,
+    9px 9px 0 #dad3c6,
+    0 0 20px rgba(242, 214, 146, 0.52),
+    14px 18px 26px rgba(0, 0, 0, 0.74);
+}
+
+.steam-deck-body.tier-3 {
+  background-color: #0d1d38;
+}
+
+.steam-deck-body.tier-2 {
+  background-color: #6b3f0c;
+}
+
+.steam-deck-body.tier-1 {
+  background-color: #17331b;
+}
+
+.steam-deck-art-overlay {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 8px 11px;
+  background: linear-gradient(
+    180deg,
+    rgba(12, 7, 14, 0.08) 0%,
+    rgba(12, 7, 14, 0.04) 48%,
+    rgba(10, 5, 12, 0.56) 100%
+  );
+}
+
+.steam-deck-art-overlay.is-secret-overlay {
+  justify-content: center;
+  padding: 6px;
+}
+
+.steam-deck-count-seal {
+  min-width: 52px;
+  height: 42px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 35%, rgba(36, 20, 34, 0.9) 0%, rgba(16, 8, 17, 0.94) 100%);
+  border: 1.6px solid rgba(244, 214, 146, 0.85);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(255, 245, 210, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.steam-deck-count-seal.is-compact {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+}
+
+.steam-deck-count {
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 2.6vh, 2.05rem);
+  color: #fff8de;
+  -webkit-text-stroke: 2.2px rgba(18, 9, 14, 0.95);
+  paint-order: stroke fill;
+  text-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.85),
+    0 0 10px rgba(255, 232, 172, 0.32);
+  line-height: 1;
+}
+
+.steam-deck-count-seal.is-compact .steam-deck-count {
+  font-size: 0.98rem;
+  -webkit-text-stroke: 1.5px rgba(18, 9, 14, 0.92);
+}
+
+.steam-deck-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(16, 8, 17, 0.68);
+  border: 1px solid rgba(244, 214, 146, 0.45);
+}
+
+.steam-deck-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, #fff7d6 0%, #e0b453 60%, #8f6215 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.78);
+}
+
+/* Steam Face-Up Development Card (True 3D two-sided container active during deck flips) */
+.steam-dev-card {
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  position: relative;
+  display: block;
+  padding: 0;
+  text-align: left;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.steam-card-flipper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.steam-dev-card.is-newly-dealt {
+  z-index: 12;
+}
+
+.steam-card-front-face {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  border: 1.5px solid rgba(248, 240, 224, 0.58);
+  background-color: #201420;
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: box-shadow 0.24s ease, border-color 0.24s ease;
+}
+
+.steam-card-back-face {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid rgba(244, 214, 146, 0.92);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+  pointer-events: none;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.68),
+    0 0 22px rgba(242, 207, 122, 0.45),
+    inset 0 0 0 1px rgba(255, 245, 210, 0.35);
+}
+
+.steam-card-back-face.tier-3 {
+  background-color: #0d1d38;
+}
+.steam-card-back-face.tier-2 {
+  background-color: #6b3f0c;
+}
+.steam-card-back-face.tier-1 {
+  background-color: #17331b;
+}
+
+.steam-card-back-dots-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(16, 8, 17, 0.72);
+  border: 1px solid rgba(244, 214, 146, 0.52);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6);
+}
+
+.steam-dev-card.is-interactive:hover {
+  transform: translateY(-6px) scale(1.03);
+  z-index: 6;
+}
+
+.steam-dev-card.is-interactive:hover .steam-card-front-face {
+  border-color: var(--gold-bright);
+  box-shadow:
+    0 18px 30px rgba(0, 0, 0, 0.72),
+    0 0 22px rgba(240, 207, 130, 0.45);
+}
+
+.steam-dev-card.is-affordable .steam-card-front-face {
+  border-color: #ffeaa8;
+  box-shadow:
+    0 0 0 2px rgba(255, 232, 158, 0.65),
+    0 0 24px rgba(236, 189, 77, 0.56),
+    0 10px 20px rgba(0, 0, 0, 0.62);
+}
+
+.steam-dev-card.is-focused .steam-card-front-face {
+  border-color: #93c5fd;
+  box-shadow:
+    0 0 0 2px rgba(147, 197, 253, 0.75),
+    0 0 22px rgba(59, 130, 246, 0.55);
+}
+
+.steam-dev-card.is-secret {
+  background-color: #1d101f;
+  border: 2px solid rgba(244, 214, 146, 0.78);
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.62);
+}
+
+/* Frosted white-ivory top bar (signature Steam Splendor look, sized for big faceted gems) */
+.steam-card-header {
+  width: 100%;
+  height: 28%;
+  min-height: 44px;
+  padding: 3px 8px 3px 9px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.94) 0%, rgba(244, 238, 230, 0.84) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.steam-card-pv {
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(1.55rem, 2.85vh, 2.15rem);
+  line-height: 1;
+  color: #ffffff;
+  -webkit-text-stroke: 3.6px #1c101b;
+  paint-order: stroke fill;
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.75);
+}
+
+.steam-card-gem-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.steam-card-gem-svg {
+  width: clamp(34px, 4.7vh, 44px);
+  height: clamp(34px, 4.7vh, 44px);
+  filter: drop-shadow(0 3px 4px rgba(18, 10, 18, 0.58));
+}
+
+/* Bottom-left vertical circular white-rimmed cost medallions */
+.steam-card-costs {
+  padding: 5px 7px 7px;
   display: flex;
   flex-direction: column;
   gap: 3px;
   align-items: flex-start;
-  background: rgba(7, 10, 17, 0.72);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  padding: 3px 5px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* Gem Stack Tokens - Skeuomorphic Premium Look */
-.gem-token {
-  width: 46px;
+.steam-cost-pip {
+  width: clamp(26px, 3.35vh, 31px);
+  height: clamp(26px, 3.35vh, 31px);
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-num);
+  font-size: clamp(0.98rem, 1.7vh, 1.15rem);
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.78);
+}
+
+/* Compact card variant for Reserved Tray & Modals */
+.steam-dev-card.is-compact {
+  width: 68px;
+  height: 94px;
+  border-radius: 7px;
+}
+
+.steam-dev-card.is-compact .steam-card-header {
+  height: 29%;
+  min-height: 26px;
+  padding: 2px 4px;
+}
+
+.steam-dev-card.is-compact .steam-card-gem-svg {
+  width: 22px;
+  height: 22px;
+}
+
+.steam-dev-card.is-compact .steam-card-pv {
+  font-size: 1rem;
+  -webkit-text-stroke: 2.2px #1c101b;
+}
+
+.steam-dev-card.is-compact .steam-card-costs {
+  padding: 3px 4px 4px;
+  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.steam-dev-card.is-compact .steam-cost-pip {
+  width: 17px;
+  height: 17px;
+  font-size: 0.68rem;
+  border-width: 1.3px;
+}
+
+/* Solid Gem Cost / Mini-Card Colors */
+.cost-white {
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #dce4ee 75%, #b9c5d4 100%);
+  color: var(--gem-white-ink);
+}
+.cost-blue {
+  background: radial-gradient(circle at 35% 30%, #5ea2ff 0%, #1d5ec4 70%, #10326e 100%);
+  color: #ffffff;
+}
+.cost-green {
+  background: radial-gradient(circle at 35% 30%, #48d68b 0%, #14824d 70%, #094527 100%);
+  color: #ffffff;
+}
+.cost-red {
+  background: radial-gradient(circle at 35% 30%, #f76d6d 0%, #c62424 70%, #6d1010 100%);
+  color: #ffffff;
+}
+.cost-black {
+  background: radial-gradient(circle at 35% 30%, #86604e 0%, #4a2d21 70%, #24130c 100%);
+  color: #ffffff;
+}
+.cost-gold {
+  background: radial-gradient(circle at 35% 30%, #fef08a 0%, #d89614 70%, #7d4e07 100%);
+  color: #211205;
+}
+
+/* 3. Right-Center Vertical Column: Tightly Clustered 3D Cylindrical Clay Poker Chips */
+.steam-chip-bank-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(4px, 0.95vh, 10px);
+  padding: 6px 0;
+  min-height: 0;
+}
+
+.steam-chip-slot {
+  width: 100%;
+  height: clamp(72px, 10.2vh, 94px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 0 4px 6px 0;
+  border: none;
+  background: transparent;
+  position: relative;
+}
+
+.steam-chip-slot.is-interactive {
+  cursor: pointer;
+}
+
+.steam-chip-count {
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(1.62rem, 2.95vh, 2.22rem);
+  color: #fffdf8;
+  width: 34px;
+  text-align: right;
+  margin-bottom: 10px;
+  -webkit-text-stroke: 3.4px rgba(22, 10, 22, 0.96);
+  paint-order: stroke fill;
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.78);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease;
+}
+
+.steam-chip-slot.is-interactive:hover .steam-chip-count,
+.steam-chip-slot.is-selected .steam-chip-count {
+  color: #fff4c4;
+  transform: scale(1.1);
+}
+
+.steam-chip-count.is-empty {
+  opacity: 0.35;
+}
+
+.steam-chip-stack-visual {
+  position: relative;
+  width: 80px;
+  height: 76px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.steam-chip-empty-well {
+  width: 72px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(255, 232, 195, 0.26);
+  background: radial-gradient(ellipse at center, rgba(16, 8, 18, 0.45) 0%, rgba(16, 8, 18, 0.16) 100%);
+  box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.5);
+  margin-bottom: 4px;
+}
+
+.steam-chip-pile {
+  position: relative;
+  width: 76px;
+  height: 52px;
+  margin-bottom: 2px;
+}
+
+/* Soft grounded cast shadow directly on the royal plum velvet */
+.steam-chip-ground-shadow {
+  position: absolute;
+  left: -5px;
+  right: -7px;
+  bottom: -9px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 45% 50%, rgba(8, 2, 12, 0.78) 0%, rgba(12, 4, 16, 0.44) 56%, transparent 78%);
+  filter: blur(3px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Individual 3D Cylindrical Clay Poker Chip */
+.steam-chip-disc {
+  --chip-main: #c92a2a;
+  --chip-light: #f06060;
+  --chip-dark: #751111;
+  --chip-edge-a: #9e1c1c;
+  --chip-edge-b: #f5efe2;
+  --chip-glow: rgba(242, 207, 122, 0.75);
+
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 76px;
+  height: 50px;
+  transform: translate3d(var(--base-x, 0px), var(--base-y, 0px), 0);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
+}
+
+/* Cylindrical 3D Sidewall with Vertical Casino Edge Stripes & Cylindrical Lighting */
+.steam-chip-cylinder {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 50px;
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.56) 0%,
+      rgba(0, 0, 0, 0.14) 20%,
+      rgba(255, 255, 255, 0.24) 40%,
+      rgba(255, 255, 255, 0.08) 56%,
+      rgba(0, 0, 0, 0.22) 78%,
+      rgba(0, 0, 0, 0.62) 100%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      var(--chip-edge-a) 0px,
+      var(--chip-edge-a) 9px,
+      var(--chip-edge-b) 9px,
+      var(--chip-edge-b) 15px
+    );
+  box-shadow:
+    0 2px 3px rgba(0, 0, 0, 0.68),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.5);
+  z-index: 1;
+}
+
+/* Top Beveled Casino Rim Cap with 8 Symmetrical Edge-Spots */
+.steam-chip-top-cap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  z-index: 2;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 90% 80% at 36% 24%, rgba(255, 255, 255, 0.34) 0%, transparent 56%),
+    conic-gradient(
+      from 0deg,
+      var(--chip-edge-b) 0deg 14deg,
+      var(--chip-main) 14deg 45deg,
+      var(--chip-edge-b) 45deg 59deg,
+      var(--chip-main) 59deg 90deg,
+      var(--chip-edge-b) 90deg 104deg,
+      var(--chip-main) 104deg 135deg,
+      var(--chip-edge-b) 135deg 149deg,
+      var(--chip-main) 149deg 180deg,
+      var(--chip-edge-b) 180deg 194deg,
+      var(--chip-main) 194deg 225deg,
+      var(--chip-edge-b) 225deg 239deg,
+      var(--chip-main) 239deg 270deg,
+      var(--chip-edge-b) 270deg 284deg,
+      var(--chip-main) 284deg 315deg,
+      var(--chip-edge-b) 315deg 329deg,
+      var(--chip-main) 329deg 360deg
+    );
+  border: 1.4px solid rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.55),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.45);
+}
+
+/* Glossy Recessed Ivory Center Inlay Medallion */
+.steam-chip-face {
+  position: absolute;
+  inset: 7px 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 28%, #ffffff 0%, #f5efe4 58%, #d6cab4 100%);
+  border: 1.5px solid rgba(154, 114, 48, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.95),
+    inset 0 -2px 4px rgba(68, 46, 20, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+/* Curved Specular Light Crescent on Top Chip Medallion */
+.steam-chip-gloss {
+  position: absolute;
+  top: -10px;
+  left: 4px;
+  right: 4px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0) 100%);
+  pointer-events: none;
+}
+
+/* Specular Sweep Shimmer on Hover / Selection */
+.steam-chip-shimmer {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: linear-gradient(
+    115deg,
+    transparent 24%,
+    rgba(255, 250, 224, 0.58) 48%,
+    rgba(255, 255, 255, 0.85) 52%,
+    transparent 74%
+  );
+  transform: translateX(-140%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Hover 3D Lift & Shimmer */
+.steam-chip-slot.is-interactive:hover .steam-chip-disc.is-top {
+  transform: translate3d(var(--base-x, 0px), calc(var(--base-y, 0px) - 8px), 0) scale(1.05);
+  filter: brightness(1.1) drop-shadow(0 0 12px var(--chip-glow));
+}
+
+.steam-chip-slot.is-interactive:hover .steam-chip-disc.is-second {
+  transform: translate3d(var(--base-x, 0px), calc(var(--base-y, 0px) - 2.5px), 0);
+}
+
+.steam-chip-slot.is-interactive:hover .steam-chip-shimmer {
+  opacity: 1;
+  animation: fx-chip-shimmer-sweep 0.9s ease-out forwards;
+}
+
+@keyframes fx-chip-shimmer-sweep {
+  0% { transform: translateX(-140%); }
+  100% { transform: translateX(140%); }
+}
+
+/* Selected Chip Levitation + Glowing Magic Ring */
+.steam-chip-disc.is-levitating {
+  animation: fx-chip-levitate 1.85s ease-in-out infinite;
+}
+
+.steam-chip-disc.is-levitating .steam-chip-top-cap {
+  border-color: #fff6cf;
+  box-shadow:
+    0 0 0 2px #fff2be,
+    0 0 20px var(--chip-glow),
+    inset 0 2px 4px rgba(255, 255, 255, 0.7);
+}
+
+.steam-chip-disc.is-levitating .steam-chip-shimmer {
+  opacity: 0.9;
+  animation: fx-chip-shimmer-sweep 2.2s ease-in-out infinite;
+}
+
+@keyframes fx-chip-levitate {
+  0%, 100% {
+    transform: translate3d(0px, var(--base-y, 0px), 0) scale(1.04);
+  }
+  50% {
+    transform: translate3d(0px, calc(var(--base-y, 0px) - 6px), 0) scale(1.07);
+  }
+}
+
+.steam-chip-magic-ring {
+  position: absolute;
+  left: -5px;
+  right: -5px;
+  bottom: 2px;
   height: 46px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 
-    -2px -2px 6px rgba(255,255,255,0.1),
-    4px 4px 10px rgba(0,0,0,0.8),
-    inset 2px 2px 4px rgba(255,255,255,0.4),
-    inset -2px -2px 6px rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  position: relative;
-  cursor: pointer;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s;
-}
-.gem-token:hover {
-  transform: scale(1.1) translateY(-2px);
-  box-shadow: 
-    0 6px 14px rgba(0,0,0,0.7),
-    inset 2px 2px 6px rgba(255,255,255,0.5),
-    inset -2px -2px 8px rgba(0,0,0,0.5);
-}
-.gem-token.active-selection {
-  box-shadow: 0 0 20px currentColor, inset 0 2px 4px rgba(255, 255, 255, 0.5);
-  transform: translateY(-6px) scale(1.15);
-  border-color: #fff;
-}
-.gem-token-small {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: bold;
-  color: #fff;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
-  box-shadow: inset 1px 1px 2px rgba(255,255,255,0.3), inset -1px -1px 2px rgba(0,0,0,0.4);
+  border: 2px solid #fff0b8;
+  box-shadow:
+    0 0 18px var(--ring-glow, rgba(242, 207, 122, 0.85)),
+    inset 0 0 12px var(--ring-glow, rgba(242, 207, 122, 0.55));
+  z-index: 15;
+  pointer-events: none;
+  animation: fx-chip-halo-pulse 1.5s ease-in-out infinite;
 }
 
-.gem-white { background: radial-gradient(circle at 30% 30%, var(--gem-white-light), var(--gem-white-dark)); color: #1e293b; text-shadow: none; border-color: rgba(0,0,0,0.2); }
-.gem-blue { background: radial-gradient(circle at 30% 30%, var(--gem-blue-light), var(--gem-blue-dark)); }
-.gem-green { background: radial-gradient(circle at 30% 30%, var(--gem-green-light), var(--gem-green-dark)); }
-.gem-red { background: radial-gradient(circle at 30% 30%, var(--gem-red-light), var(--gem-red-dark)); }
-.gem-black { background: radial-gradient(circle at 30% 30%, var(--gem-black-light), var(--gem-black-dark)); }
-.gem-gold { background: radial-gradient(circle at 30% 30%, var(--gem-gold-light), var(--gem-gold-dark)); }
+.steam-chip-magic-ring.tone-white { --ring-glow: rgba(240, 244, 255, 0.9); border-color: #ffffff; }
+.steam-chip-magic-ring.tone-blue { --ring-glow: rgba(96, 165, 250, 0.92); border-color: #bfdbfe; }
+.steam-chip-magic-ring.tone-green { --ring-glow: rgba(52, 211, 153, 0.92); border-color: #a7f3d0; }
+.steam-chip-magic-ring.tone-red { --ring-glow: rgba(248, 113, 113, 0.92); border-color: #fecaca; }
+.steam-chip-magic-ring.tone-black { --ring-glow: rgba(212, 165, 116, 0.9); border-color: #f6dcb8; }
+.steam-chip-magic-ring.tone-gold { --ring-glow: rgba(250, 204, 21, 0.95); border-color: #fef08a; }
 
-/* Buttons & Controls */
-.btn-gold {
-  background: linear-gradient(135deg, var(--color-gold-light), var(--color-gold-dark));
-  color: #07090e;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-family: var(--font-sans);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(223, 177, 91, 0.35);
-}
-.btn-gold:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(223, 177, 91, 0.55);
-}
-.btn-gold:active {
-  transform: translateY(0);
-}
-.btn-gold:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
+@keyframes fx-chip-halo-pulse {
+  0%, 100% { opacity: 0.55; filter: brightness(1); }
+  50% { opacity: 1; filter: brightness(1.3); }
 }
 
-.btn-outline {
-  background: transparent;
-  color: var(--color-gold);
-  border: 1px solid var(--color-gold);
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-family: var(--font-sans);
-  font-weight: 600;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-outline:hover {
-  background: rgba(223, 177, 91, 0.12);
-  transform: translateY(-2px);
-}
-
-/* TV Toast Banner style */
-.tv-toast-banner {
+.steam-chip-pick-badge {
   position: absolute;
-  top: 20px;
+  top: -10px;
+  right: -6px;
+  z-index: 25;
+  min-width: 28px;
+  height: 25px;
+  padding: 0 6px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fff3c2 0%, #d99d2a 100%);
+  border: 2px solid #2b1807;
+  color: #211004;
+  font-size: 0.88rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.65), 0 0 12px rgba(242, 207, 122, 0.6);
+}
+
+/* 3D Clay Poker Chip Color Palettes */
+.chip-white {
+  --chip-main: #d8e1ec;
+  --chip-light: #ffffff;
+  --chip-dark: #8c9bae;
+  --chip-edge-a: #adb9c8;
+  --chip-edge-b: #ffffff;
+  --chip-glow: rgba(236, 242, 255, 0.85);
+}
+.chip-blue {
+  --chip-main: #1f5fc4;
+  --chip-light: #60a5fa;
+  --chip-dark: #0f3275;
+  --chip-edge-a: #154396;
+  --chip-edge-b: #edf4ff;
+  --chip-glow: rgba(96, 165, 250, 0.9);
+}
+.chip-green {
+  --chip-main: #158750;
+  --chip-light: #4ade80;
+  --chip-dark: #084728;
+  --chip-edge-a: #0f6239;
+  --chip-edge-b: #ecfdf5;
+  --chip-glow: rgba(52, 211, 153, 0.9);
+}
+.chip-red {
+  --chip-main: #c92626;
+  --chip-light: #f87171;
+  --chip-dark: #6b0f0f;
+  --chip-edge-a: #981818;
+  --chip-edge-b: #fff1f1;
+  --chip-glow: rgba(248, 113, 113, 0.9);
+}
+.chip-black {
+  --chip-main: #533224;
+  --chip-light: #8f634f;
+  --chip-dark: #25130b;
+  --chip-edge-a: #3b2015;
+  --chip-edge-b: #e6d6c3;
+  --chip-glow: rgba(226, 189, 109, 0.85);
+}
+.chip-gold {
+  --chip-main: #d99716;
+  --chip-light: #fde047;
+  --chip-dark: #7d4e07;
+  --chip-edge-a: #a86c0a;
+  --chip-edge-b: #fff7cf;
+  --chip-glow: rgba(250, 204, 21, 0.95);
+}
+
+/* 4. Far-Right Vertical Column: Square Noble Tiles */
+.steam-nobles-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+}
+
+.steam-noble-tile {
+  --noble-size: clamp(86px, calc((100vh - var(--dock-h) - 86px) / 5), 112px);
+  width: var(--noble-size);
+  height: var(--noble-size);
+  border-radius: 9px;
+  border: 2px solid rgba(236, 202, 128, 0.85);
+  background-color: #211322;
+  background-size: cover;
+  background-position: center 18%;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.62),
+    inset 0 0 0 1px rgba(255, 245, 215, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.steam-noble-tile:hover {
+  transform: scale(1.04);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.72),
+    0 0 16px rgba(236, 202, 128, 0.4);
+}
+
+.steam-noble-tile.is-compact {
+  --noble-size: 76px;
+}
+
+.steam-noble-strip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  min-width: 26px;
+  background: linear-gradient(180deg, rgba(255, 252, 246, 0.84) 0%, rgba(235, 226, 215, 0.76) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 5px 3px;
+}
+
+.steam-noble-req {
+  width: 24px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1.6px solid #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-num);
+  font-size: 0.96rem;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+
+.req-white { background: #eef2f6; color: #1e2430; border-color: #94a3b8; }
+.req-blue { background: #1d5ec4; color: #ffffff; }
+.req-green { background: #15804b; color: #ffffff; }
+.req-red { background: #c92a2a; color: #ffffff; }
+.req-black { background: #4a2d21; color: #ffffff; }
+
+.steam-noble-pv {
+  position: absolute;
+  right: 7px;
+  bottom: 4px;
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(1.65rem, 3vh, 2.2rem);
+  line-height: 1;
+  color: #ffffff;
+  -webkit-text-stroke: 3.6px #1c0f1b;
+  paint-order: stroke fill;
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.85);
+}
+
+/* =========================================================
+   BOTTOM HORIZONTAL MERCHANT DOCK
+========================================================= */
+.steam-bottom-dock {
+  height: var(--dock-h);
+  width: 100%;
+  background: linear-gradient(180deg, var(--dock-wood-top) 0%, var(--dock-wood-bot) 100%);
+  border-top: 2px solid rgba(226, 189, 109, 0.62);
+  box-shadow:
+    0 -12px 30px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 242, 206, 0.3);
+  padding: 10px 18px;
+  display: grid;
+  grid-template-columns: 286px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+  z-index: 25;
+}
+
+.steam-bottom-dock.is-my-turn {
+  border-top-color: var(--gold-bright);
+  box-shadow:
+    0 -4px 26px rgba(226, 189, 109, 0.25),
+    0 -12px 30px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 245, 215, 0.55);
+}
+
+/* Dock Left: Player Portrait & Prestige Medal */
+.dock-merchant-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dock-avatar-frame {
+  width: 72px;
+  height: 86px;
+  border-radius: 36px 36px 10px 10px;
+  overflow: hidden;
+  border: 2px solid var(--gold-primary);
+  background: #1a0f1b;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+}
+
+.steam-bottom-dock.is-my-turn .dock-avatar-frame {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 18px rgba(242, 207, 122, 0.55);
+}
+
+.dock-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+}
+
+.dock-merchant-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dock-name-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.dock-merchant-name {
+  font-family: var(--font-serif-kr);
+  font-size: 1.24rem;
+  font-weight: 500;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dock-turn-status {
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.dock-turn-status.is-turn {
+  color: var(--gold-bright);
+}
+
+/* Dock Center: 5 Bonus Card Stacks + Held Chips + Gold Joker */
+.dock-economy-board {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+}
+
+.dock-color-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: 11px;
+  background: rgba(16, 8, 17, 0.46);
+  border: 1px solid rgba(226, 189, 109, 0.22);
+  min-width: 64px;
+}
+
+.dock-bonus-card {
+  width: 38px;
+  height: 44px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.22rem;
+  font-weight: 700;
+  box-shadow:
+    0 3px 6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.dock-bonus-card.is-zero {
+  opacity: 0.46;
+}
+
+.dock-chip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dock-chip-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.98rem;
+  font-weight: 700;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55);
+}
+
+.dock-chip-circle.is-zero {
+  opacity: 0.44;
+}
+
+.dock-gold-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 11px;
+  border-radius: 11px;
+  background: rgba(58, 38, 14, 0.4);
+  border: 1px solid rgba(226, 189, 109, 0.36);
+  min-width: 78px;
+}
+
+.dock-gold-label {
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--gold-bright);
+}
+
+.dock-cap-readout {
+  font-size: 0.84rem;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.dock-cap-readout.is-over {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+/* Dock Reserved Card Mini-Slots */
+.dock-reserved-tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(226, 189, 109, 0.24);
+}
+
+.dock-reserved-empty {
+  width: 68px;
+  height: 94px;
+  border-radius: 8px;
+  border: 1.5px dashed rgba(226, 189, 109, 0.32);
+  background: rgba(16, 8, 17, 0.36);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: rgba(226, 189, 109, 0.56);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* Dock Right Utility Buttons */
+.dock-utils {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(226, 189, 109, 0.24);
+}
+
+.dock-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid rgba(226, 189, 109, 0.34);
+  background: rgba(24, 13, 25, 0.78);
+  color: var(--ink-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.16s ease;
+}
+
+.dock-icon-btn:hover,
+.dock-icon-btn.is-active {
+  border-color: var(--gold-bright);
+  color: var(--gold-bright);
+  background: rgba(58, 36, 56, 0.92);
+}
+
+.dock-confirm-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 9px;
+  background: rgba(34, 16, 26, 0.96);
+  border: 1px solid var(--gold-bright);
+  font-size: 0.76rem;
+}
+
+.dock-confirm-yes {
+  border: none;
+  border-radius: 6px;
+  background: #c92a2a;
+  color: #ffffff;
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.dock-confirm-no {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-secondary);
+  padding: 4px 7px;
+  font-size: 0.74rem;
+}
+
+/* =========================================================
+   FLOATING SELECTION BAR, LOG POPOVER & MODALS
+========================================================= */
+.floating-gem-bar {
+  position: fixed;
+  bottom: calc(var(--dock-h, 112px) + 6px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(7, 9, 14, 0.95);
-  border: 1.5px solid var(--color-gold);
-  border-radius: 30px;
-  padding: 10px 30px;
-  color: #fff;
-  font-size: 1.25rem;
-  font-weight: 600;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.85), 0 0 20px rgba(223, 177, 91, 0.35);
-  z-index: 1000;
-  animation: toast-slide-down 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(46, 27, 45, 0.96) 0%, rgba(22, 12, 23, 0.98) 100%);
+  border: 1.5px solid var(--gold-bright);
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.72),
+    0 0 20px rgba(226, 189, 109, 0.3);
 }
 
-@keyframes toast-slide-down {
-  0% {
-    top: -60px;
-    opacity: 0;
-  }
-  100% {
-    top: 20px;
-    opacity: 1;
-  }
+.floating-gem-picks {
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
-/* Animations */
-@keyframes pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(223, 177, 91, 0.4); }
-  70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(223, 177, 91, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(223, 177, 91, 0); }
+.picked-chip-pill {
+  border: 1.5px solid rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  padding: 5px 12px 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.94rem;
+  font-weight: 500;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
 }
 
-@keyframes card-slide-in {
-  0% {
-    opacity: 0;
-    transform: translateY(15px) scale(0.96);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.floating-gem-hint {
+  font-size: 0.94rem;
+  color: var(--ink-secondary);
+  white-space: nowrap;
 }
 
-.pulse-active {
-  animation: pulse 2s infinite;
-  border-color: var(--color-gold) !important;
+.floating-confirm-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1.5px solid #fff0be;
+  background: linear-gradient(180deg, #e7c06a 0%, #b58229 100%);
+  color: #1f1106;
+  font-weight: 700;
+  font-size: 0.98rem;
+  white-space: nowrap;
 }
 
-/* Lobby Page */
-.lobby-container {
-  max-width: 600px;
-  width: 90%;
-  margin: 10vh auto;
-  padding: 40px;
-  text-align: center;
+.floating-confirm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.lobby-title {
-  font-size: 3rem;
-  margin-bottom: 30px;
-  color: var(--color-gold);
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+.floating-cancel-btn {
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-primary);
+  font-size: 0.94rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-.lobby-card {
+/* Chronicle Log Popover */
+.chronicle-popover {
+  position: fixed;
+  right: 18px;
+  bottom: calc(var(--dock-h, 120px) + 12px);
+  width: 370px;
+  max-height: 390px;
+  z-index: 45;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(44, 26, 44, 0.96) 0%, rgba(22, 12, 23, 0.98) 100%);
+  border: 1.5px solid var(--gold-line-strong);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.72);
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin-top: 20px;
-}
-
-/* TV Screen Layout */
-.tv-layout {
-  display: grid;
-  grid-template-columns: 260px 1fr 300px;
-  gap: 20px;
-  padding: 20px;
-  height: 100vh;
-  max-height: 100vh;
   overflow: hidden;
 }
 
-/* Player Controller Mobile Layout */
-.mobile-layout {
+.chronicle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(226, 189, 109, 0.25);
+  font-family: var(--font-serif-kr);
+  font-weight: 700;
+  color: var(--gold-bright);
+  font-size: 1.08rem;
+}
+
+.chronicle-list {
+  padding: 12px 16px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  padding: 12px;
-  gap: 12px;
+  gap: 8px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink-secondary);
 }
 
-/* Responsive Grid helpers */
-.cards-grid-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+.chronicle-item {
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-/* Loading spinner */
-.spinner {
-  border: 4px solid rgba(255,255,255,0.1);
+.chronicle-item:first-child {
+  color: var(--gold-bright);
+  font-weight: 600;
+}
+
+/* Toast Notification */
+.steam-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(132, 32, 42, 0.96) 0%, rgba(82, 16, 24, 0.98) 100%);
+  border: 1.5px solid #fca5a5;
+  color: #fff5f5;
+  font-size: 0.88rem;
+  font-weight: 600;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
+}
+
+/* Modal Backdrop & Card Action Modal */
+.steam-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(14, 7, 16, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.steam-modal-card {
+  width: 100%;
+  max-width: 440px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(50, 30, 49, 0.98) 0%, rgba(24, 13, 25, 0.99) 100%);
+  border: 2px solid var(--gold-line-strong);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.78);
+  padding: 22px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.modal-title {
+  font-family: var(--font-serif-kr);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.modal-card-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.modal-card-preview-row .steam-dev-card {
+  --card-h: 204px;
+  --card-w: 148px;
+  flex-shrink: 0;
+}
+
+.modal-card-preview-row .steam-card-gem-svg {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  border-left-color: var(--color-gold);
-  animation: spin 1s linear infinite;
-  margin: 20px auto;
-}
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
-/* Sandbox Split Screen Layout */
-.sandbox-container {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-  background-color: var(--bg-dark);
-}
-
-.sandbox-left-panel {
-  padding: 10px;
-  overflow: hidden;
-  border-right: 1px solid var(--border-color);
-}
-
-.sandbox-right-panel {
+.modal-cost-breakdown {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  background: rgba(13, 17, 28, 0.4);
-}
-
-.sandbox-player-tabs {
-  display: flex;
-  background: rgba(0, 0, 0, 0.4);
-  border-bottom: 1.5px solid var(--border-color);
-  padding: 8px 10px;
   gap: 8px;
 }
 
-.sandbox-tab {
-  flex: 1;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: #a0aec0;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: all 0.2s;
+.modal-cost-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.94rem;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: rgba(16, 8, 17, 0.5);
+}
+
+.modal-cost-ok {
+  color: #86efac;
+  font-weight: 700;
+}
+
+.modal-cost-short {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.modal-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.modal-actions-row.is-single {
+  grid-template-columns: 1fr;
+}
+
+.modal-btn-buy {
+  padding: 12px 14px;
+  border-radius: 9px;
+  border: 1.5px solid #fff0be;
+  background: linear-gradient(180deg, #e7c06a 0%, #b58229 100%);
+  color: #201207;
+  font-weight: 700;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.modal-btn-buy:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.modal-btn-reserve {
+  padding: 12px 14px;
+  border-radius: 9px;
+  border: 1.5px solid var(--gold-line-strong);
+  background: rgba(52, 32, 51, 0.9);
+  color: var(--gold-bright);
+  font-weight: 700;
+  font-size: 0.98rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.modal-btn-reserve:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* Victory Overlay */
+.victory-modal-card {
+  width: 100%;
+  max-width: 500px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(242, 207, 122, 0.22) 0%, transparent 58%),
+    linear-gradient(180deg, rgba(54, 32, 52, 0.98) 0%, rgba(22, 12, 24, 0.99) 100%);
+  border: 2px solid var(--gold-bright);
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.82);
+  padding: 28px 26px 24px;
   text-align: center;
-  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
-.sandbox-tab:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+.victory-standings {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.sandbox-tab.active {
-  background: rgba(223, 177, 91, 0.15);
-  border-color: var(--color-gold);
-  color: var(--color-gold-light);
-  box-shadow: 0 0 10px rgba(223, 177, 91, 0.2);
+.victory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(18, 9, 19, 0.6);
+  border: 1px solid rgba(226, 189, 109, 0.24);
 }
 
-.sandbox-tab.current-turn {
+.victory-row.is-winner {
+  border-color: var(--gold-bright);
+  background: rgba(226, 189, 109, 0.16);
+}
+
+.victory-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+
+.victory-actions .btn-gilded-primary {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.victory-actions .btn-gilded-secondary {
+  flex-shrink: 0;
+  padding: 13px 22px;
+  border-radius: 10px;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+/* Clay Chip Component (Mobile & Return Modal) */
+.clay-chip-btn,
+.clay-chip-static {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 2px;
+}
+
+.clay-chip-btn.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.clay-chip-medallion {
+  position: relative;
+  border-radius: 999px;
+  background:
+    conic-gradient(
+      from 0deg,
+      var(--chip-edge-b, #fff) 0deg 14deg,
+      var(--chip-main, #c92626) 14deg 45deg,
+      var(--chip-edge-b, #fff) 45deg 59deg,
+      var(--chip-main, #c92626) 59deg 90deg,
+      var(--chip-edge-b, #fff) 90deg 104deg,
+      var(--chip-main, #c92626) 104deg 135deg,
+      var(--chip-edge-b, #fff) 135deg 149deg,
+      var(--chip-main, #c92626) 149deg 180deg,
+      var(--chip-edge-b, #fff) 180deg 194deg,
+      var(--chip-main, #c92626) 194deg 225deg,
+      var(--chip-edge-b, #fff) 225deg 239deg,
+      var(--chip-main, #c92626) 239deg 270deg,
+      var(--chip-edge-b, #fff) 270deg 284deg,
+      var(--chip-main, #c92626) 284deg 315deg,
+      var(--chip-edge-b, #fff) 315deg 329deg,
+      var(--chip-main, #c92626) 329deg 360deg
+    );
+  border: 1.5px solid rgba(255, 255, 255, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 3px 0 var(--chip-dark, #3a1a1a),
+    0 5px 12px rgba(0, 0, 0, 0.6);
+}
+
+.clay-chip-medallion.size-sm { width: 34px; height: 34px; border-width: 2px; }
+.clay-chip-medallion.size-md { width: 48px; height: 48px; }
+.clay-chip-medallion.size-lg { width: 58px; height: 58px; }
+
+.clay-chip-medallion.is-picked {
+  box-shadow: 0 0 0 2.5px #fff1ba, 0 0 14px rgba(242, 207, 122, 0.7);
+}
+
+.clay-chip-inner {
+  width: 72%;
+  height: 72%;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede6da 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clay-chip-pick {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: #fde047;
+  color: #1f1105;
+  font-size: 0.7rem;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clay-chip-count {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--ink-primary);
+}
+
+/* =========================================================
+   TV LOBBY & MOBILE HANDHELD CONTROLLER (?view=tv / ?view=player)
+========================================================= */
+.tv-lobby-shell {
+  min-height: 100vh;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.tv-lobby-grid {
+  width: 100%;
+  max-width: 900px;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.tv-panel {
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(48, 29, 46, 0.94) 0%, rgba(24, 13, 25, 0.96) 100%);
+  border: 2px solid var(--gold-line);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+.qr-frame {
+  background: #ffffff;
+  padding: 14px;
+  border-radius: 12px;
+  align-self: center;
+}
+
+.mobile-shell {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 14px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-panel {
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(48, 29, 46, 0.94) 0%, rgba(24, 13, 25, 0.96) 100%);
+  border: 1.5px solid var(--gold-line);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobile-card-grid .steam-dev-card {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2.5 / 3.45;
+}
+
+/* =========================================================
+   RESPONSIVE ADJUSTMENTS FOR SMALLER SCREENS
+========================================================= */
+@media (max-width: 1200px) {
+  .steam-playmat {
+    grid-template-columns: 176px minmax(0, 1fr) 96px 96px;
+    gap: 10px;
+    padding: 10px 12px 8px;
+  }
+
+  .steam-tabletop {
+    --card-h: clamp(130px, calc((100vh - var(--dock-h) - 48px) / 3), 204px);
+  }
+
+  .steam-bottom-dock {
+    grid-template-columns: 190px minmax(0, 1fr) auto auto;
+    gap: 10px;
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .setup-stage {
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .setup-workspace {
+    flex: none;
+    max-height: none;
+    grid-template-columns: 1fr;
+  }
+
+  .setup-portrait-grid {
+    grid-template-rows: auto;
+  }
+
+  .setup-seat-portrait-wrap {
+    min-height: 180px;
+  }
+
+  .setup-seat-add {
+    min-height: 240px;
+  }
+
+  .local-multi-grid,
+  .tv-lobby-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   TABLETOP MOTION, JUICE & RENAISSANCE MAGIC STARLIGHT FX
+========================================================= */
+
+/* Ensure opponent plaques anchor their floating action whispers */
+.steam-opponent-plaque {
   position: relative;
 }
 
-.sandbox-tab.current-turn::after {
-  content: 'TURN';
+.opponent-action-whisper {
   position: absolute;
-  top: -6px;
+  left: 6px;
   right: 6px;
-  background: var(--gem-red);
-  color: #fff;
-  font-size: 0.55rem;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-weight: 800;
+  top: -16px;
+  z-index: 15;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff3c7 0%, #daa63c 100%);
+  border: 1.5px solid #402407;
+  color: #1f1105;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.6),
+    0 0 14px rgba(242, 207, 122, 0.45);
+  animation: fx-whisper-pop 2.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
 }
 
-.sandbox-controller-wrapper {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
+@keyframes fx-whisper-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.9); }
+  12% { opacity: 1; transform: translateY(0) scale(1.04); }
+  20% { opacity: 1; transform: translateY(0) scale(1); }
+  84% { opacity: 1; transform: translateY(-2px) scale(1); }
+  100% { opacity: 0; transform: translateY(-10px) scale(0.95); }
 }
+
+/* Active Turn Breathing Candlelight Halo */
+.steam-opponent-plaque.is-active {
+  animation: fx-turn-halo 2.6s ease-in-out infinite;
+}
+
+.steam-bottom-dock.is-my-turn .dock-avatar-frame {
+  animation: fx-turn-halo 2.6s ease-in-out infinite;
+}
+
+@keyframes fx-turn-halo {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 240, 196, 0.38),
+      0 0 20px rgba(226, 189, 109, 0.42),
+      0 8px 18px rgba(0, 0, 0, 0.55);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3.5px rgba(255, 246, 212, 0.78),
+      0 0 36px rgba(245, 212, 128, 0.78),
+      0 10px 22px rgba(0, 0, 0, 0.62);
+  }
+}
+
+/* Prestige Medal Score Bounce */
+.prestige-medal.is-score-pop {
+  animation: fx-medal-bounce 1.05s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fx-medal-bounce {
+  0% { transform: scale(1); }
+  28% { transform: scale(1.48); box-shadow: 0 0 32px rgba(255, 242, 182, 0.98); }
+  58% { transform: scale(0.92); }
+  78% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Tactile 3D Chip Click Press */
+.steam-chip-slot.is-interactive:active .steam-chip-disc.is-top {
+  transform: translate3d(var(--base-x, 0px), calc(var(--base-y, 0px) - 2px), 0) scale(0.95) !important;
+}
+
+/* Affordable Card Luxurious Champagne Sheen + Twinkling Corner Starlight */
+.steam-card-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: linear-gradient(
+    118deg,
+    transparent 20%,
+    rgba(255, 244, 198, 0.34) 44%,
+    rgba(255, 255, 255, 0.62) 50%,
+    rgba(255, 244, 198, 0.26) 56%,
+    transparent 80%
+  );
+  transform: translateX(-145%);
+  animation: fx-card-sheen 4.2s ease-in-out infinite;
+}
+
+@keyframes fx-card-sheen {
+  0%, 55% { transform: translateX(-145%); }
+  100% { transform: translateX(145%); }
+}
+
+.steam-card-glint {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 4;
+  background: #fff7d6;
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+  filter: drop-shadow(0 0 6px #f2c45a);
+  animation: fx-corner-twinkle 2.8s ease-in-out infinite;
+}
+
+.steam-card-glint.glint-a {
+  top: 7px;
+  left: 9px;
+}
+
+.steam-card-glint.glint-b {
+  bottom: 10px;
+  right: 9px;
+  animation-delay: 1.4s;
+}
+
+@keyframes fx-corner-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.45) rotate(0deg); }
+  50% { opacity: 0.96; transform: scale(1.15) rotate(45deg); }
+}
+
+/* TRUE 2-SIDED 3D CARD FLIP & DEAL FROM DECK (1.22s silky natural motion, seamless 90deg edge swap) */
+.steam-dev-card.is-newly-dealt {
+  z-index: 12;
+}
+
+.steam-dev-card.is-newly-dealt .steam-card-flipper {
+  animation: fx-card-deal-arc 1.22s cubic-bezier(0.22, 0.88, 0.28, 1) both;
+}
+
+.steam-dev-card.is-newly-dealt .steam-card-back-face {
+  animation: fx-card-flip-back 1.22s cubic-bezier(0.22, 0.88, 0.28, 1) both;
+}
+
+.steam-dev-card.is-newly-dealt .steam-card-front-face {
+  animation: fx-card-flip-front 1.22s cubic-bezier(0.22, 0.88, 0.28, 1) both;
+}
+
+@keyframes fx-card-deal-arc {
+  0% {
+    transform: translate3d(-128px, -14px, 0) rotateZ(-5deg) scale(0.86);
+  }
+  22% {
+    transform: translate3d(-82px, -24px, 0) rotateZ(-3deg) scale(1.02);
+  }
+  48% {
+    transform: translate3d(-22px, -30px, 0) rotateZ(1.8deg) scale(1.1);
+  }
+  78% {
+    transform: translate3d(4px, -6px, 0) rotateZ(0.6deg) scale(1.03);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotateZ(0deg) scale(1);
+  }
+}
+
+@keyframes fx-card-flip-back {
+  0% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(0deg);
+  }
+  22% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(28deg);
+  }
+  47.5% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(89deg);
+  }
+  48.5% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(90deg);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(90deg);
+  }
+}
+
+@keyframes fx-card-flip-front {
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(-90deg);
+  }
+  47.5% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(-90deg);
+  }
+  48.5% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(-89deg);
+  }
+  78% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(8deg);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(0deg);
+  }
+}
+
+/* Floating Gem Bar Entrance */
+.floating-gem-bar {
+  animation: fx-bar-rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fx-bar-rise {
+  0% { opacity: 0; transform: translate(-50%, 16px) scale(0.95); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* Modal Crisp Entrance */
+.steam-modal-card,
+.victory-modal-card {
+  animation: fx-modal-enter 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fx-modal-enter {
+  0% { opacity: 0; transform: translateY(12px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* =========================================================
+   RENAISSANCE AMBIENT STARLIGHT & CANDLELIGHT LAYER
+========================================================= */
+.velvet-ambience-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.velvet-candle-glow {
+  position: absolute;
+  top: -12%;
+  left: 50%;
+  width: 68vw;
+  height: 55vh;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(245, 210, 128, 0.14) 0%, rgba(180, 118, 152, 0.06) 45%, transparent 72%);
+  animation: fx-candle-breathe 7.5s ease-in-out infinite;
+}
+
+@keyframes fx-candle-breathe {
+  0%, 100% { opacity: 0.72; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.06); }
+}
+
+.velvet-magic-star {
+  position: absolute;
+  clip-path: polygon(50% 0%, 59% 41%, 100% 50%, 59% 59%, 50% 100%, 41% 59%, 0% 50%, 41% 41%);
+  opacity: 0;
+  animation: fx-ambient-twinkle 6s ease-in-out infinite;
+}
+
+.velvet-magic-star.tone-gold {
+  background: #fff5cc;
+  filter: drop-shadow(0 0 6px rgba(242, 196, 90, 0.85));
+}
+.velvet-magic-star.tone-pearl {
+  background: #ffffff;
+  filter: drop-shadow(0 0 6px rgba(226, 232, 248, 0.8));
+}
+.velvet-magic-star.tone-amber {
+  background: #fde6a8;
+  filter: drop-shadow(0 0 7px rgba(218, 148, 62, 0.8));
+}
+
+@keyframes fx-ambient-twinkle {
+  0%, 100% { opacity: 0.04; transform: translate3d(0, 6px, 0) scale(0.45) rotate(0deg); }
+  35% { opacity: 0.68; transform: translate3d(4px, -6px, 0) scale(1.12) rotate(35deg); }
+  55% { opacity: 0.85; transform: translate3d(6px, -11px, 0) scale(1.22) rotate(55deg); }
+  80% { opacity: 0.2; transform: translate3d(8px, -18px, 0) scale(0.6) rotate(90deg); }
+}
+
+.velvet-dust-mote {
+  position: absolute;
+  border-radius: 999px;
+  opacity: 0;
+  animation: fx-dust-drift 13s ease-in-out infinite;
+}
+
+.velvet-dust-mote.tone-gold {
+  background: radial-gradient(circle, rgba(255, 240, 184, 0.92) 0%, rgba(226, 189, 109, 0) 70%);
+}
+.velvet-dust-mote.tone-pearl {
+  background: radial-gradient(circle, rgba(244, 247, 255, 0.85) 0%, rgba(203, 213, 225, 0) 70%);
+}
+.velvet-dust-mote.tone-amber {
+  background: radial-gradient(circle, rgba(252, 216, 146, 0.88) 0%, rgba(196, 132, 54, 0) 70%);
+}
+
+@keyframes fx-dust-drift {
+  0% { opacity: 0; transform: translate3d(0, 22px, 0) scale(0.7); }
+  25% { opacity: 0.52; }
+  75% { opacity: 0.4; }
+  100% { opacity: 0; transform: translate3d(20px, -52px, 0) scale(1.25); }
+}
+
+/* Fixed Full-Viewport FX Overlay */
+.tabletop-fx-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 55;
+  overflow: hidden;
+}
+
+/* Flying 3D Poker Chip Arc (0.86s graceful 3D clay tumble + Stardust Comet Trails) */
+.fx-flying-chip-anchor {
+  position: fixed;
+  width: 68px;
+  height: 48px;
+  margin-left: -34px;
+  margin-top: -24px;
+  opacity: 0;
+  animation: fx-chip-arc 0.86s cubic-bezier(0.22, 0.78, 0.28, 1) both;
+}
+
+.fx-flying-chip-disc {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background:
+    conic-gradient(
+      from 0deg,
+      var(--chip-edge-b, #fff) 0deg 14deg,
+      var(--chip-main, #c92626) 14deg 45deg,
+      var(--chip-edge-b, #fff) 45deg 59deg,
+      var(--chip-main, #c92626) 59deg 90deg,
+      var(--chip-edge-b, #fff) 90deg 104deg,
+      var(--chip-main, #c92626) 104deg 135deg,
+      var(--chip-edge-b, #fff) 135deg 149deg,
+      var(--chip-main, #c92626) 149deg 180deg,
+      var(--chip-edge-b, #fff) 180deg 194deg,
+      var(--chip-main, #c92626) 194deg 225deg,
+      var(--chip-edge-b, #fff) 225deg 239deg,
+      var(--chip-main, #c92626) 239deg 270deg,
+      var(--chip-edge-b, #fff) 270deg 284deg,
+      var(--chip-main, #c92626) 284deg 315deg,
+      var(--chip-edge-b, #fff) 315deg 329deg,
+      var(--chip-main, #c92626) 329deg 360deg
+    );
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    0 5px 0 var(--chip-dark, #3a1a1a),
+    0 12px 22px rgba(0, 0, 0, 0.7),
+    0 0 26px var(--sp-glow, rgba(255, 236, 178, 0.8));
+  position: relative;
+}
+
+.fx-flying-chip-face {
+  position: absolute;
+  inset: 6px 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 30%, #ffffff 0%, #f1eadf 65%, #d6cbb9 100%);
+  border: 1px solid rgba(154, 114, 48, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.9);
+}
+
+.fx-chip-comet-trail {
+  position: fixed;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  background: var(--sp-core, #fff6d6);
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+  filter: drop-shadow(0 0 10px var(--sp-glow, #f2c45a));
+  opacity: 0;
+  animation: fx-chip-trail-arc 0.84s cubic-bezier(0.22, 0.78, 0.28, 1) both;
+}
+
+.fx-chip-comet-trail.trail-2 {
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+}
+
+@keyframes fx-chip-arc {
+  0% {
+    opacity: 0.2;
+    transform: perspective(700px) translate3d(0, 0, 0) scale(1.06) rotateX(18deg) rotateZ(0deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  48% {
+    opacity: 1;
+    transform: perspective(700px) translate3d(calc(var(--dx) * 0.48), calc(var(--dy) * 0.48 + var(--arc-y)), 40px) scale(1.24) rotateX(-24deg) rotateY(190deg) rotateZ(150deg);
+  }
+  88% {
+    opacity: 1;
+    transform: perspective(700px) translate3d(var(--dx), var(--dy), 0) scale(0.76) rotateX(10deg) rotateY(360deg) rotateZ(330deg);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(700px) translate3d(var(--dx), var(--dy), 0) scale(0.5) rotateX(0deg) rotateY(360deg) rotateZ(360deg);
+  }
+}
+
+@keyframes fx-chip-trail-arc {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.5) rotate(0deg); }
+  20% { opacity: 0.82; }
+  50% {
+    opacity: 0.72;
+    transform: translate3d(calc(var(--dx) * 0.48), calc(var(--dy) * 0.48 + var(--arc-y)), 0) scale(1.15) rotate(120deg);
+  }
+  90% { opacity: 0.25; transform: translate3d(var(--dx), var(--dy), 0) scale(0.4) rotate(240deg); }
+  100% { opacity: 0; transform: translate3d(var(--dx), var(--dy), 0) scale(0.15) rotate(280deg); }
+}
+
+/* Flying Development Card Swoop (Longer 0.92s majestic 3D glide + magic aura) */
+.fx-flying-card-anchor {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 11px;
+  animation: fx-card-swoop 0.92s cubic-bezier(0.22, 0.84, 0.28, 1) forwards;
+}
+
+.fx-card-magic-aura {
+  position: absolute;
+  inset: -12px;
+  border-radius: 18px;
+  background: radial-gradient(circle, var(--sp-glow, rgba(242, 207, 122, 0.65)) 0%, transparent 72%);
+  opacity: 0.72;
+  filter: blur(8px);
+  z-index: -1;
+}
+
+.fx-flying-card-anchor .steam-dev-card {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes fx-card-swoop {
+  0% {
+    opacity: 1;
+    transform: perspective(1000px) translate3d(0, 0, 0) scale(1) rotateY(0deg) rotateZ(0deg);
+  }
+  34% {
+    opacity: 1;
+    transform: perspective(1000px) translate3d(calc(var(--dx) * 0.34), calc(var(--dy) * 0.34 - 46px), 40px) scale(1.1) rotateY(16deg) rotateZ(-5deg);
+  }
+  78% {
+    opacity: 0.96;
+    transform: perspective(1000px) translate3d(calc(var(--dx) * 0.88), calc(var(--dy) * 0.88 - 8px), 0) scale(0.54) rotateY(-6deg) rotateZ(3deg);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1000px) translate3d(var(--dx), var(--dy), 0) scale(0.32) rotateY(0deg) rotateZ(5deg);
+  }
+}
+
+/* Rich Gem-Tinted Magic Starlight Burst (Core Flash + Double Rings + 8 Stars + 6 Glints) */
+.fx-sparkle-burst {
+  position: fixed;
+  width: 0;
+  height: 0;
+}
+
+.fx-sparkle-flash {
+  position: absolute;
+  left: -34px;
+  top: -34px;
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--sp-core, #fff9df) 0%, var(--sp-glow, #f2c45a) 38%, transparent 72%);
+  animation: fx-flash-bloom 0.65s ease-out forwards;
+}
+
+@keyframes fx-flash-bloom {
+  0% { opacity: 0.95; transform: scale(0.25); }
+  35% { opacity: 0.8; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(1.85); }
+}
+
+.fx-sparkle-ring {
+  position: absolute;
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  border: 2px solid var(--sp-ring, rgba(255, 240, 180, 0.92));
+  box-shadow: 0 0 20px var(--sp-glow, rgba(242, 207, 122, 0.82));
+  animation: fx-ring-expand 0.78s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.fx-sparkle-ring.is-outer {
+  border-style: dashed;
+  border-width: 1.5px;
+  animation-delay: 85ms;
+  animation-duration: 0.92s;
+}
+
+@keyframes fx-ring-expand {
+  0% { opacity: 0.95; transform: scale(0.3) rotate(0deg); }
+  100% { opacity: 0; transform: scale(2.05) rotate(32deg); }
+}
+
+.fx-sparkle-star {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: var(--sp-core, #fff7d6);
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+  filter: drop-shadow(0 0 7px var(--sp-glow, #f5c33b));
+  animation: fx-star-fly 0.88s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.fx-sparkle-glint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  background: var(--sp-core, #fff9e6);
+  box-shadow: 0 0 9px var(--sp-glow, #f5c33b);
+  animation: fx-glint-fly 0.96s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fx-star-fly {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4) rotate(0deg); }
+  16% { opacity: 1; transform: translate3d(calc(var(--tx) * 0.25), calc(var(--ty) * 0.25), 0) scale(1.22) rotate(35deg); }
+  100% { opacity: 0; transform: translate3d(var(--tx), var(--ty), 0) scale(0.18) rotate(165deg); }
+}
+
+@keyframes fx-glint-fly {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.5); }
+  22% { opacity: 0.95; }
+  100% { opacity: 0; transform: translate3d(var(--tx), var(--ty), 0) scale(0.15); }
+}
+
+/* Floating Golden Prestige (+N) Callout */
+.fx-score-pop {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-num);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 2.35rem;
+  color: #fff6cc;
+  -webkit-text-stroke: 4px #301606;
+  paint-order: stroke fill;
+  text-shadow: 0 4px 18px rgba(242, 207, 122, 0.95);
+  animation: fx-score-rise 1.75s cubic-bezier(0.2, 0.88, 0.28, 1) forwards;
+}
+
+@keyframes fx-score-rise {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.7); }
+  18% { opacity: 1; transform: translate(-50%, -16px) scale(1.22); }
+  76% { opacity: 1; transform: translate(-50%, -50px) scale(1.02); }
+  100% { opacity: 0; transform: translate(-50%, -72px) scale(0.92); }
+}
+
+/* Calligraphic Top Turn & Noble Visit Banner */
+.fx-banner {
+  position: fixed;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 11px 34px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(90deg, rgba(28, 15, 29, 0.12) 0%, rgba(46, 25, 46, 0.95) 20%, rgba(46, 25, 46, 0.95) 80%, rgba(28, 15, 29, 0.12) 100%);
+  border-top: 2px solid var(--gold-bright);
+  border-bottom: 2px solid var(--gold-bright);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.65),
+    0 0 26px rgba(242, 207, 122, 0.32);
+  animation: fx-banner-glide 1.92s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.fx-banner.is-noble {
+  animation-duration: 2.8s;
+  background: linear-gradient(90deg, rgba(64, 38, 12, 0.18) 0%, rgba(96, 58, 16, 0.97) 20%, rgba(96, 58, 16, 0.97) 80%, rgba(64, 38, 12, 0.18) 100%);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.72),
+    0 0 36px rgba(245, 212, 128, 0.58);
+}
+
+.fx-banner-text {
+  font-family: var(--font-serif-kr);
+  font-size: 1.46rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gold-bright);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+}
+
+.fx-banner-ornament {
+  color: var(--gold-bright);
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 8px rgba(245, 212, 128, 0.85));
+}
+
+@keyframes fx-banner-glide {
+  0% { opacity: 0; transform: translate(-50%, -18px) scale(0.92); }
+  14% { opacity: 1; transform: translate(-50%, 0) scale(1.02); }
+  22% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  82% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -12px) scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .velvet-dust-mote,
+  .velvet-magic-star,
+  .velvet-candle-glow,
+  .steam-card-sheen,
+  .steam-card-glint,
+  .steam-chip-disc.is-levitating,
+  .steam-chip-magic-ring,
+  .steam-opponent-plaque.is-active,
+  .steam-bottom-dock.is-my-turn .dock-avatar-frame {
+    animation: none !important;
+  }
+}
+

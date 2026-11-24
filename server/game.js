@@ -63,7 +63,7 @@ export class SplendorGame {
       nobles: []
     });
 
-    this.log(`${name} joined the game.`);
+    this.log(`${name} 상인이 길드에 입장했습니다.`);
     return true;
   }
 
@@ -72,10 +72,10 @@ export class SplendorGame {
     if (idx !== -1) {
       const name = this.players[idx].name;
       this.players.splice(idx, 1);
-      this.log(`${name} left the game.`);
+      this.log(`${name} 상인이 퇴장했습니다.`);
       if (this.status === 'playing' && this.players.length < 2) {
         this.status = 'lobby';
-        this.log(`Game ended because there are not enough players.`);
+        this.log(`인원 부족으로 게임이 종료되었습니다.`);
       }
       return true;
     }
@@ -124,7 +124,7 @@ export class SplendorGame {
     this.currentPlayerIndex = 0;
     this.status = 'playing';
     this.logs = [];
-    this.log(`Game started! It's ${this.players[0].name}'s turn.`);
+    this.log(`길드 대전 시작! ${this.players[0].name}의 차례입니다.`);
     return true;
   }
 
@@ -176,7 +176,8 @@ export class SplendorGame {
       player.gems[color]++;
     }
 
-    this.log(`${player.name} took ${colors.length} gems: ${colors.join(', ')}.`);
+    const korMap = { white: '다이아', blue: '사파이어', green: '에메랄드', red: '루비', black: '오닉스', gold: '황금' };
+    this.log(`${player.name}: 보석 획득 (${colors.map(c => korMap[c] || c).join(', ')})`);
     this.endTurn();
     return { success: true };
   }
@@ -196,7 +197,8 @@ export class SplendorGame {
     this.gems[color] -= 2;
     player.gems[color] += 2;
 
-    this.log(`${player.name} took 2 ${color} gems.`);
+    const korMap = { white: '다이아', blue: '사파이어', green: '에메랄드', red: '루비', black: '오닉스' };
+    this.log(`${player.name}: ${korMap[color] || color} 보석 2개 획득`);
     this.endTurn();
     return { success: true };
   }
@@ -211,7 +213,6 @@ export class SplendorGame {
     }
 
     let card = null;
-    let fromBoard = false;
 
     // Find card on the board
     for (let t = 1; t <= 3; t++) {
@@ -219,7 +220,6 @@ export class SplendorGame {
       if (idx !== -1) {
         card = this.board[t][idx];
         this.board[t].splice(idx, 1);
-        fromBoard = true;
         // Replace card on board
         if (this.decks[t].length > 0) {
           this.board[t].push(this.decks[t].pop());
@@ -251,7 +251,7 @@ export class SplendorGame {
 
     player.reserved.push(card);
     
-    this.log(`${player.name} reserved a Level ${card.level} card ${gotGold ? 'and got 1 gold' : ''}.`);
+    this.log(`${player.name}: ${card.level}단계 카드 킵${gotGold ? ' (황금 +1)' : ''}`);
     this.endTurn();
     return { success: true };
   }
@@ -336,7 +336,8 @@ export class SplendorGame {
     player.discounts[card.color]++;
     player.points += card.points;
 
-    this.log(`${player.name} bought a Level ${card.level} ${card.color} card for ${card.points} PV.`);
+    const korMap = { white: '다이아', blue: '사파이어', green: '에메랄드', red: '루비', black: '오닉스' };
+    this.log(`${player.name}: ${card.level}단계 ${korMap[card.color] || card.color} 카드 구매 (+${card.points} PV)`);
     
     // Check noble visit
     this.checkNobles(player);
@@ -371,7 +372,7 @@ export class SplendorGame {
       this.gems[color] += gemCounts[color];
     }
 
-    this.log(`${player.name} returned ${returnTotal} gems to reach the hand limit.`);
+    this.log(`${player.name}: 보석 ${returnTotal}개 반납 완료`);
     
     // Clear flag and advance turn
     delete player.requiresGemReturn;
@@ -408,41 +409,29 @@ export class SplendorGame {
     for (const noble of eligibleNobles) {
       player.nobles.push(noble);
       player.points += noble.points;
-      this.log(`Noble visited ${player.name}! +3 PV.`);
+      this.log(`귀족 후원! ${player.name} +3 PV 획득!`);
     }
   }
 
   endTurn() {
-    // Check if player has > 10 gems. If so, they must return gems, and the next turn is blocked until they do.
-    // In our implementation, we'll keep it simple: if player has > 10 gems, we'll trigger a return-gem state in the UI.
-    // We let the turn end, but if they have > 10 gems, we'll flag that they must resolve it, or we do it inline.
-    // Let's check inline if player gem total > 10. If so, we set a flag 'requiresGemReturn' on the player, and we DON'T advance currentPlayerIndex until they do returnGems.
     const player = this.getCurrentPlayer();
     const totalGems = Object.values(player.gems).reduce((a, b) => a + b, 0);
 
     if (totalGems > 10) {
-      this.status = 'playing'; // keep playing
+      this.status = 'playing';
       player.requiresGemReturn = true;
-      this.log(`${player.name} has ${totalGems} gems and must return ${totalGems - 10} gems.`);
+      this.log(`${player.name}: 보석 한도 초과 (${totalGems}개 → ${totalGems - 10}개 반납 필요)`);
       return;
     }
 
-    // Clean up flag if it was set
     delete player.requiresGemReturn;
-
-    // Clear focus
     delete this.focusMap[player.id];
 
-    // Advance turn
-    const prevIndex = this.currentPlayerIndex;
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
 
-    // If we wrapped back to player 0, it means a full round completed.
-    // Check if any player has reached >= 15 points.
     if (this.currentPlayerIndex === 0) {
       const winners = this.players.filter(p => p.points >= 15);
       if (winners.length > 0) {
-        // Find player with highest points. Tiebreaker: fewest development cards.
         let bestPlayer = winners[0];
         for (let i = 1; i < winners.length; i++) {
           const p = winners[i];
@@ -456,11 +445,11 @@ export class SplendorGame {
         }
         this.status = 'finished';
         this.winner = bestPlayer;
-        this.log(`Game over! ${bestPlayer.name} wins with ${bestPlayer.points} points!`);
+        this.log(`게임 종료! ${bestPlayer.name} 최종 우승 (${bestPlayer.points} PV)`);
         return;
       }
     }
 
-    this.log(`It is now ${this.players[this.currentPlayerIndex].name}'s turn.`);
+    this.log(`${this.players[this.currentPlayerIndex].name}의 차례입니다.`);
   }
 }
