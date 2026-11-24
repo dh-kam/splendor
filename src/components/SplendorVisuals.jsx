@@ -6,33 +6,86 @@ import {
   getNoblePortrait,
   getPlayerPortrait,
 } from '../utils/gemMeta';
+import { TurnGlowBorder } from './TurnGlowBorder';
 
 export function SplendorEmblem({ compact = false }) {
   return (
-    <div className={`splendor-emblem ${compact ? 'is-compact' : ''}`}>
+    <div className={`splendor-emblem ${compact ? 'is-compact' : 'is-hero'}`}>
       <div className="emblem-crest" aria-hidden="true">
-        <svg viewBox="0 0 80 42" fill="none" className="emblem-crown-svg">
+        <svg viewBox="0 0 180 56" fill="none" className="emblem-crown-svg">
+          {/* Ornate left & right gilded filigree wings */}
           <path
-            d="M40 4 L52 18 L40 34 L28 18 Z"
-            fill="url(#emblemSapphire)"
-            stroke="#f5de9a"
-            strokeWidth="1.7"
+            d="M14 34 Q42 18 68 27 Q54 34 38 35"
+            stroke="url(#emblemGoldStroke)"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            fill="none"
           />
-          <path d="M40 4 L46 18 L40 34 L34 18 Z" fill="rgba(255,255,255,0.28)" />
-          <path d="M12 24 Q24 14 29 19" stroke="#e2bd6d" strokeWidth="1.6" strokeLinecap="round" />
-          <path d="M68 24 Q56 14 51 19" stroke="#e2bd6d" strokeWidth="1.6" strokeLinecap="round" />
-          <circle cx="10" cy="25" r="2.2" fill="#f3d68b" />
-          <circle cx="70" cy="25" r="2.2" fill="#f3d68b" />
+          <path
+            d="M166 34 Q138 18 112 27 Q126 34 142 35"
+            stroke="url(#emblemGoldStroke)"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            fill="none"
+          />
+          <path
+            d="M44 26 Q56 12 72 20"
+            stroke="#f5de9a"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M136 26 Q124 12 108 20"
+            stroke="#f5de9a"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          {/* Flanking jewel pearls */}
+          <circle cx="12" cy="34" r="3" fill="#fff3c4" />
+          <circle cx="168" cy="34" r="3" fill="#fff3c4" />
+          <circle cx="43" cy="25" r="2.2" fill="#f3d68b" />
+          <circle cx="137" cy="25" r="2.2" fill="#f3d68b" />
+          {/* Twin 4-point Renaissance star glints */}
+          <path d="M28 15 L30 20 L35 22 L30 24 L28 29 L26 24 L21 22 L26 20 Z" fill="#fff7d4" />
+          <path d="M152 15 L154 20 L159 22 L154 24 L152 29 L150 24 L145 22 L150 20 Z" fill="#fff7d4" />
+          {/* Center Royal Sapphire Crest */}
+          <path
+            d="M90 5 L108 26 L90 48 L72 26 Z"
+            fill="url(#emblemSapphire)"
+            stroke="#fff0be"
+            strokeWidth="2.2"
+            strokeLinejoin="round"
+          />
+          <path d="M90 5 L99 26 L90 48 L81 26 Z" fill="rgba(255,255,255,0.3)" />
+          <path d="M90 10 L96 24 L90 28 L84 24 Z" fill="rgba(255,255,255,0.45)" />
           <defs>
-            <linearGradient id="emblemSapphire" x1="28" y1="4" x2="52" y2="34" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#93c5fd" />
-              <stop offset="48%" stopColor="#2563eb" />
+            <linearGradient id="emblemSapphire" x1="72" y1="5" x2="108" y2="48" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#bae6fd" />
+              <stop offset="46%" stopColor="#2563eb" />
               <stop offset="100%" stopColor="#1e3a8a" />
+            </linearGradient>
+            <linearGradient id="emblemGoldStroke" x1="14" y1="26" x2="166" y2="26" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#c59437" />
+              <stop offset="50%" stopColor="#fff3c7" />
+              <stop offset="100%" stopColor="#c59437" />
             </linearGradient>
           </defs>
         </svg>
       </div>
-      <div className="emblem-wordmark">Splendor</div>
+      <div className="emblem-wordmark-wrap">
+        {!compact && <span className="emblem-wordmark-aura" aria-hidden="true" />}
+        <div className="emblem-wordmark">Splendor</div>
+        {!compact && (
+          <>
+            <div className="emblem-wordmark-glow" aria-hidden="true">
+              Splendor
+            </div>
+            <span className="emblem-letter-star star-1" aria-hidden="true" />
+            <span className="emblem-letter-star star-2" aria-hidden="true" />
+            <span className="emblem-letter-star star-3" aria-hidden="true" />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -532,13 +585,19 @@ export function OpponentPortraitPlaque({
   isInspected = false,
   actionWhisper = null,
   scorePulse = false,
+  turnRemainingSec = null,
+  turnProgress = 1,
+  isTurnUrgent = false,
   onClick,
 }) {
   const portraitSrc = getPlayerPortrait(player, index);
   const totalGems = Object.values(player.gems || {}).reduce((a, b) => a + b, 0);
+  const showTimer = isActive && turnRemainingSec !== null;
 
   const inner = (
     <>
+      <TurnGlowBorder active={isActive} rx={13} urgent={isActive && isTurnUrgent} />
+
       {actionWhisper && (
         <div className="opponent-action-whisper" role="status">
           {actionWhisper}
@@ -559,7 +618,20 @@ export function OpponentPortraitPlaque({
             <span className="opponent-stat-item">보석 {totalGems}/10</span>
             <span className="opponent-stat-item">킵 {player.reservedCount ?? player.reserved?.length ?? 0}</span>
           </div>
-          {isActive && <div className="opponent-turn-label">차례 진행 중</div>}
+          {isActive && (
+            <div className="opponent-turn-row">
+              <span className="opponent-turn-label">차례 진행 중</span>
+              {showTimer && (
+                <span
+                  key={isTurnUrgent ? `opp-sec-${turnRemainingSec}` : 'opp-sec'}
+                  className={`turn-timer-pill is-sm numeric ${isTurnUrgent ? 'is-urgent' : ''}`}
+                  data-turn-timer="opponent"
+                >
+                  {turnRemainingSec}s
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div
@@ -569,6 +641,15 @@ export function OpponentPortraitPlaque({
           {player.points}
         </div>
       </div>
+
+      {showTimer && (
+        <div className={`turn-timer-track ${isTurnUrgent ? 'is-urgent' : ''}`} aria-hidden="true">
+          <div
+            className="turn-timer-fill"
+            style={{ width: `${Math.max(0, Math.min(100, turnProgress * 100))}%` }}
+          />
+        </div>
+      )}
 
       <div className="opponent-economy-strip">
         {GEM_COLORS.map((color) => {
@@ -595,7 +676,7 @@ export function OpponentPortraitPlaque({
     </>
   );
 
-  const cls = `steam-opponent-plaque ${isActive ? 'is-active' : ''} ${isInspected ? 'is-inspected' : ''}`;
+  const cls = `steam-opponent-plaque ${isActive ? 'is-active' : ''} ${isActive && isTurnUrgent ? 'is-urgent' : ''} ${isInspected ? 'is-inspected' : ''}`;
 
   if (onClick) {
     return (

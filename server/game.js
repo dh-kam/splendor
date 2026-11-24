@@ -9,11 +9,17 @@ function shuffle(array) {
   return arr;
 }
 
+export const TURN_DURATION_MS = 30000;
+
 export class SplendorGame {
   constructor() {
     this.status = 'lobby'; // lobby, playing, finished
     this.players = []; // Array of { id, name, gems, cards, discounts, reserved, points, nobles }
     this.currentPlayerIndex = 0;
+    this.turnSequence = 0;
+    this.turnDurationMs = TURN_DURATION_MS;
+    this.turnStartedAt = null;
+    this.turnDeadlineAt = null;
     this.nobles = [];
     this.decks = {
       1: [],
@@ -124,8 +130,16 @@ export class SplendorGame {
     this.currentPlayerIndex = 0;
     this.status = 'playing';
     this.logs = [];
+    this.resetTurnClock();
     this.log(`길드 대전 시작! ${this.players[0].name}의 차례입니다.`);
     return true;
+  }
+
+  resetTurnClock() {
+    this.turnSequence += 1;
+    const now = Date.now();
+    this.turnStartedAt = now;
+    this.turnDeadlineAt = now + this.turnDurationMs;
   }
 
   log(message) {
@@ -145,7 +159,8 @@ export class SplendorGame {
 
   // 1. Take gems of different colors (up to 3, or all available if bank has < 3 colors)
   takeThreeGems(playerId, colors) {
-    if (!this.validateTurn(playerId)) return { success: false, reason: "Not your turn" };
+    const turnErr = this.getTurnError(playerId);
+    if (turnErr) return { success: false, reason: turnErr };
     
     // Count how many different colors (excluding gold) are available in the bank (count > 0)
     const availableColorsInBank = Object.entries(this.gems)
@@ -184,7 +199,8 @@ export class SplendorGame {
 
   // 2. Take 2 gems of the same color
   takeTwoGems(playerId, color) {
-    if (!this.validateTurn(playerId)) return { success: false, reason: "Not your turn" };
+    const turnErr = this.getTurnError(playerId);
+    if (turnErr) return { success: false, reason: turnErr };
     if (color === 'gold') return { success: false, reason: "Cannot select gold" };
 
     const player = this.getCurrentPlayer();
@@ -205,7 +221,8 @@ export class SplendorGame {
 
   // 3. Reserve a card
   reserveCard(playerId, cardId, tier) {
-    if (!this.validateTurn(playerId)) return { success: false, reason: "Not your turn" };
+    const turnErr = this.getTurnError(playerId);
+    if (turnErr) return { success: false, reason: turnErr };
     
     const player = this.getCurrentPlayer();
     if (player.reserved.length >= 3) {
@@ -258,7 +275,8 @@ export class SplendorGame {
 
   // 4. Buy a card
   buyCard(playerId, cardId) {
-    if (!this.validateTurn(playerId)) return { success: false, reason: "Not your turn" };
+    const turnErr = this.getTurnError(playerId);
+    if (turnErr) return { success: false, reason: turnErr };
 
     const player = this.getCurrentPlayer();
     let card = null;
@@ -348,7 +366,10 @@ export class SplendorGame {
 
   // Return gems if count > 10
   returnGems(playerId, gemCounts) {
-    const player = this.players.find(p => p.id === playerId);
+    if (!this.validateTurn(playerId, { allowDuringGemReturn: true })) {
+      return { success: false, reason: '현재 차례가 아닙니다.' };
+    }
+    const player = this.getCurrentPlayer();
     if (!player) return { success: false, reason: "Player not found" };
 
     let totalGems = Object.values(player.gems).reduce((a, b) => a + b, 0);
@@ -383,10 +404,20 @@ export class SplendorGame {
 
   // --- HELPERS ---
 
-  validateTurn(playerId) {
+  getTurnError(playerId) {
+    if (this.status !== 'playing') return '진행 중인 게임이 아닙니다.';
+    const player = this.getCurrentPlayer();
+    if (!player || player.id !== playerId) return '현재 상대 상인의 차례입니다.';
+    if (player.requiresGemReturn) return '보석 10개 초과: 먼저 초과 보석을 반납해 주세요.';
+    return null;
+  }
+
+  validateTurn(playerId, { allowDuringGemReturn = false } = {}) {
     if (this.status !== 'playing') return false;
     const player = this.getCurrentPlayer();
-    return player && player.id === playerId;
+    if (!player || player.id !== playerId) return false;
+    if (!allowDuringGemReturn && player.requiresGemReturn) return false;
+    return true;
   }
 
   checkNobles(player) {
@@ -420,6 +451,7 @@ export class SplendorGame {
     if (totalGems > 10) {
       this.status = 'playing';
       player.requiresGemReturn = true;
+      this.resetTurnClock();
       this.log(`${player.name}: 보석 한도 초과 (${totalGems}개 → ${totalGems - 10}개 반납 필요)`);
       return;
     }
@@ -445,11 +477,15 @@ export class SplendorGame {
         }
         this.status = 'finished';
         this.winner = bestPlayer;
+        this.turnStartedAt = null;
+        this.turnDeadlineAt = null;
+        this.turnSequence += 1;
         this.log(`게임 종료! ${bestPlayer.name} 최종 우승 (${bestPlayer.points} PV)`);
         return;
       }
     }
 
+    this.resetTurnClock();
     this.log(`${this.players[this.currentPlayerIndex].name}의 차례입니다.`);
   }
 }

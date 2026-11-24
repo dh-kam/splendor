@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   Volume2,
   VolumeX,
+  Music,
   ScrollText,
   RotateCcw,
   Home,
@@ -36,15 +37,29 @@ import {
   getPlayerPortrait,
 } from './utils/gemMeta';
 import {
-  playChipClink,
+  setSoundTheme,
+  setMasterVolume,
+  playCardSelect,
+  playChipPick,
+  playChipCollect,
   playCardBuy,
   playCardReserve,
   playCardDeal,
   playTurnBell,
   playNobleFanfare,
+  playVictoryFanfare,
+  playThemePreview,
+  playCountdownTick,
 } from './utils/soundFx';
+import { getSoundTheme, clampVolume } from './utils/soundThemes';
 import { diffGameStates } from './utils/gameEffects';
-import { VelvetAmbience, TabletopEffectsLayer } from './components/TabletopEffects';
+import {
+  VelvetAmbience,
+  TabletopEffectsLayer,
+  TurnCountdownSlamOverlay,
+} from './components/TabletopEffects';
+import { SoundThemePopover } from './components/SoundThemePopover';
+import { TurnGlowBorder } from './components/TurnGlowBorder';
 
 const socket = io();
 
@@ -120,7 +135,14 @@ export default function App() {
 
   const [gameState, setGameState] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => localStorage.getItem('splendor_sound_muted') === '1');
+  const [soundTheme, setSoundThemeState] = useState(() =>
+    getSoundTheme(localStorage.getItem('splendor_sound_theme')).id
+  );
+  const [soundVolume, setSoundVolumeState] = useState(() =>
+    clampVolume(localStorage.getItem('splendor_sound_volume') ?? 0.75)
+  );
+  const [showSoundPanel, setShowSoundPanel] = useState(false);
 
   // Tabletop interactive state
   const [selectedGems, setSelectedGems] = useState([]);
@@ -151,18 +173,78 @@ export default function App() {
   const [playerWhispers, setPlayerWhispers] = useState({});
   const [scorePulseIds, setScorePulseIds] = useState([]);
   const [fxBanner, setFxBanner] = useState(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const [serverClockOffset, setServerClockOffset] = useState(0);
 
   const autostartRanRef = useRef(false);
   const toastTimerRef = useRef(null);
   const prevStateRef = useRef(null);
   const mutedRef = useRef(muted);
   const playerIdRef = useRef(playerId);
+  const playerNameRef = useRef(playerName);
+  const viewModeRef = useRef(viewMode);
+  const actionPendingRef = useRef(false);
+  const actionPendingTimerRef = useRef(null);
+  const lastTickedSecondRef = useRef(null);
   const fxSeqRef = useRef(0);
   const fxTimersRef = useRef(new Set());
 
+  const clearPendingAction = () => {
+    actionPendingRef.current = false;
+    if (actionPendingTimerRef.current) {
+      clearTimeout(actionPendingTimerRef.current);
+      actionPendingTimerRef.current = null;
+    }
+  };
+
+  const beginPendingAction = () => {
+    actionPendingRef.current = true;
+    if (actionPendingTimerRef.current) clearTimeout(actionPendingTimerRef.current);
+    actionPendingTimerRef.current = setTimeout(() => {
+      actionPendingRef.current = false;
+      actionPendingTimerRef.current = null;
+    }, 1500);
+  };
+
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+
+  useEffect(() => {
+    playerNameRef.current = playerName;
+  }, [playerName]);
+
   useEffect(() => {
     mutedRef.current = muted;
+    localStorage.setItem('splendor_sound_muted', muted ? '1' : '0');
   }, [muted]);
+
+  useEffect(() => {
+    setSoundTheme(soundTheme);
+    localStorage.setItem('splendor_sound_theme', soundTheme);
+  }, [soundTheme]);
+
+  useEffect(() => {
+    setMasterVolume(soundVolume);
+    localStorage.setItem('splendor_sound_volume', String(soundVolume));
+  }, [soundVolume]);
+
+  const handleSelectSoundTheme = (nextThemeId) => {
+    const resolved = setSoundTheme(nextThemeId);
+    setSoundThemeState(resolved);
+    if (!muted) {
+      playThemePreview(resolved, false);
+    }
+  };
+
+  const handleVolumeChange = (nextVol) => {
+    const clamped = clampVolume(nextVol);
+    setSoundVolumeState(clamped);
+    setMasterVolume(clamped);
+    if (clamped > 0 && muted) {
+      setMuted(false);
+    }
+  };
 
   const scheduleFxCleanup = (fn, ms) => {
     const t = setTimeout(() => {
@@ -221,8 +303,20 @@ export default function App() {
     };
 
     const onStateUpdate = (state) => {
+      clearPendingAction();
+      if (typeof state.serverNow === 'number') {
+        setServerClockOffset(state.serverNow - Date.now());
+      }
+      setClockNow(Date.now());
+
       const prev = prevStateRef.current;
       prevStateRef.current = state;
+
+      // Drop stale chip selections if the active turn moved away from us
+      const nextCurrent = state.players?.[state.currentPlayerIndex];
+      if (!nextCurrent || nextCurrent.id !== playerIdRef.current || state.status !== 'playing') {
+        setSelectedGems((curr) => (curr.length > 0 ? [] : curr));
+      }
 
       if (prev && prev.status === 'playing' && state.status !== 'lobby') {
         const fx = diffGameStates(prev, state);
@@ -252,7 +346,7 @@ export default function App() {
               spawnSparkleAt(from.x, from.y, color, delayMs, 0.72);
               spawnSparkleAt(to.x, to.y, color, delayMs + 760, 1.05);
               if (isAiActor) {
-                scheduleFxCleanup(() => playChipClink(isMuted, idx, 0.44), delayMs + 50);
+                scheduleFxCleanup(() => playChipPick(isMuted, color, idx, 0.42), delayMs + 50);
               }
             }
           });
@@ -422,22 +516,60 @@ export default function App() {
             });
           }, 2600);
         }
+        // 9. Victory Notification Fanfare when match transitions to finished
+        if (state.status === 'finished') {
+          const isHumanWinner = Boolean(state.winner && state.winner.id === myId);
+          scheduleFxCleanup(() => playVictoryFanfare(isMuted, isHumanWinner), 240);
+        }
       }
 
       setGameState(state);
     };
 
     const onErrorMessage = (msg) => {
+      clearPendingAction();
       showToast(msg);
     };
+
+    const onTurnTimeout = ({ playerId: timedOutId }) => {
+      clearPendingAction();
+      if (timedOutId === playerIdRef.current) {
+        setSelectedGems([]);
+        setInspectCard(null);
+        showToast('30초 시간 초과로 자동 선택이 진행되었습니다.');
+      }
+    };
+
+    const onConnect = () => {
+      clearPendingAction();
+      const mode = viewModeRef.current;
+      if (mode === 'tv') {
+        socket.emit('register-tv');
+      } else if (mode === 'sandbox') {
+        socket.emit('register-sandbox', { playerId: playerIdRef.current });
+      } else if (mode === 'player') {
+        const prevPlayers = prevStateRef.current?.players || [];
+        const wasJoined = prevPlayers.some((p) => p.id === playerIdRef.current);
+        if (wasJoined) {
+          const clean = (playerNameRef.current || '').trim() || '베네치아 상인';
+          socket.emit('join-game', { playerId: playerIdRef.current, name: clean, isAi: false });
+        }
+      }
+    };
+
     socket.on('state-update', onStateUpdate);
     socket.on('error-message', onErrorMessage);
+    socket.on('turn-timeout', onTurnTimeout);
+    socket.on('connect', onConnect);
 
     const timers = fxTimersRef.current;
     return () => {
       socket.off('state-update', onStateUpdate);
       socket.off('error-message', onErrorMessage);
+      socket.off('turn-timeout', onTurnTimeout);
+      socket.off('connect', onConnect);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (actionPendingTimerRef.current) clearTimeout(actionPendingTimerRef.current);
       timers.forEach((t) => clearTimeout(t));
       timers.clear();
     };
@@ -448,9 +580,18 @@ export default function App() {
     if (viewMode === 'tv') {
       socket.emit('register-tv');
     } else if (viewMode === 'sandbox') {
-      socket.emit('register-sandbox');
+      socket.emit('register-sandbox', { playerId });
     }
-  }, [viewMode]);
+  }, [viewMode, playerId]);
+
+  // Smooth 150ms ticker for authoritative 30-second turn countdown
+  useEffect(() => {
+    if (gameState?.status !== 'playing' || !gameState?.turnDeadlineAt) return undefined;
+    const id = setInterval(() => {
+      setClockNow(Date.now());
+    }, 150);
+    return () => clearInterval(id);
+  }, [gameState?.status, gameState?.turnDeadlineAt, gameState?.turnSequence]);
 
   // Launch sandbox match cleanly (single atomic event)
   const launchSandboxGame = (mode = setupTab === 'spec' ? 'spec' : 'pve', count = setupCount) => {
@@ -461,6 +602,7 @@ export default function App() {
     setInspectCard(null);
     setConfirmRestart(false);
     setInspectedPlayerId(null);
+    setShowSoundPanel(false);
     setViewMode('sandbox');
     socket.emit('start-sandbox', {
       mode,
@@ -496,15 +638,28 @@ export default function App() {
     }
   }, [viewMode, gameState?.status]);
 
-  // Keyboard shortcut on Setup screen (Enter/Space launches match when not typing in input)
+  // Global keyboard shortcuts (M to mute/unmute, Escape to close popovers, Enter/Space to start on title)
   useEffect(() => {
-    if (viewMode !== 'selector' || setupTab === 'local') return;
     const onKeyDown = (e) => {
       const tag = e.target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        launchSandboxGame(setupTab === 'spec' ? 'spec' : 'pve', setupCount);
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      if (e.key === 'Escape') {
+        if (showSoundPanel) setShowSoundPanel(false);
+        if (showChronicle) setShowChronicle(false);
+        return;
+      }
+
+      if (e.key === 'm' || e.key === 'M') {
+        setMuted((prev) => !prev);
+        return;
+      }
+
+      if (viewMode === 'selector' && setupTab !== 'local' && tag !== 'BUTTON') {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          launchSandboxGame(setupTab === 'spec' ? 'spec' : 'pve', setupCount);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -531,13 +686,57 @@ export default function App() {
 
   const leftOpponents = players.filter((p) => p.id !== dockMerchant?.id);
 
+  // Authoritative 30-second turn countdown (skew-corrected against serverNow)
+  const turnDurationMs = gameState?.turnDurationMs || 30000;
+  const isTurnClockActive =
+    gameState?.status === 'playing' && typeof gameState?.turnDeadlineAt === 'number';
+  const turnRemainingMs = isTurnClockActive
+    ? Math.max(0, gameState.turnDeadlineAt - (clockNow + serverClockOffset))
+    : null;
+  const turnRemainingSec =
+    turnRemainingMs !== null
+      ? Math.max(0, Math.min(Math.ceil(turnDurationMs / 1000), Math.ceil(turnRemainingMs / 1000)))
+      : null;
+  const turnProgress =
+    turnRemainingMs !== null ? Math.max(0, Math.min(1, turnRemainingMs / turnDurationMs)) : 1;
+  const isTurnUrgent = turnRemainingSec !== null && turnRemainingSec <= 10 && turnRemainingSec > 0;
+  const isHumanActiveClock =
+    gameState?.status === 'playing' &&
+    Boolean(humanPlayer) &&
+    currentPlayer?.id === humanPlayer.id &&
+    !humanPlayer.isAi;
+
+  // Trigger tense Renaissance timpani/clock cue once per second during 10..1 on the human player's turn
+  useEffect(() => {
+    if (!isHumanActiveClock || !isTurnUrgent || turnRemainingSec === null) {
+      lastTickedSecondRef.current = null;
+      return;
+    }
+    const tickKey = `${gameState?.turnSequence ?? 0}:${turnRemainingSec}`;
+    if (lastTickedSecondRef.current !== tickKey) {
+      lastTickedSecondRef.current = tickKey;
+      playCountdownTick(mutedRef.current, turnRemainingSec);
+    }
+  }, [isHumanActiveClock, isTurnUrgent, turnRemainingSec, gameState?.turnSequence]);
+
+  // Card selection inspection with subtle tier-scaled Renaissance audio cue
+  const handleInspectCard = (card, fromReserved = false) => {
+    if (!card || card.id === 'secret') return;
+    playCardSelect(muted, card.tier || 1);
+    setInspectCard({ card, fromReserved });
+  };
+
   // Gem selection logic (functional update so rapid clicks never race)
   const handleToggleGemPick = (color) => {
     if (!isHumanTurn || color === 'gold') return;
     const bankCount = gameState?.gems?.[color] || 0;
     if (bankCount <= 0) return;
 
-    playChipClink(muted, selectedGems.length);
+    const alreadyPicked = selectedGems.filter((c) => c === color).length;
+    const willDeselect =
+      alreadyPicked === 2 ||
+      (alreadyPicked === 1 && !(selectedGems.length === 1 && bankCount >= 4));
+    playChipPick(muted, color, willDeselect ? -1 : selectedGems.length);
 
     // Immediate gem-matched magic starlight burst right on the clicked poker chip stack
     const bankPos = getCenterRect(`[data-gem-bank="${color}"]`);
@@ -587,7 +786,7 @@ export default function App() {
   };
 
   const removePickedGemAt = (idx) => {
-    playChipClink(muted, -1);
+    playChipPick(muted, selectedGems[idx] || 'white', -1);
     setSelectedGems((prev) => prev.filter((_, i) => i !== idx));
   };
 
@@ -605,8 +804,9 @@ export default function App() {
   })();
 
   const handleConfirmGems = () => {
-    if (!humanPlayer || !canSubmitGemPick) return;
-    playChipClink(muted, 2);
+    if (!humanPlayer || !canSubmitGemPick || actionPendingRef.current) return;
+    beginPendingAction();
+    playChipCollect(muted, selectedGems);
     if (selectedGems.length === 2 && selectedGems[0] === selectedGems[1]) {
       socket.emit('take-two-gems', { playerId: humanPlayer.id, color: selectedGems[0] });
     } else {
@@ -616,7 +816,8 @@ export default function App() {
   };
 
   const handleBuyCard = (card) => {
-    if (!humanPlayer || !isHumanTurn) return;
+    if (!humanPlayer || !isHumanTurn || actionPendingRef.current) return;
+    beginPendingAction();
     playCardBuy(muted);
     socket.emit('buy-card', { playerId: humanPlayer.id, cardId: card.id });
     setInspectCard(null);
@@ -624,11 +825,12 @@ export default function App() {
   };
 
   const handleReserveCard = (card, tier = null) => {
-    if (!humanPlayer || !isHumanTurn) return;
+    if (!humanPlayer || !isHumanTurn || actionPendingRef.current) return;
     if ((humanPlayer.reserved?.length || 0) >= 3) {
       showToast('킵 슬롯(최대 3장)이 모두 가득 찼습니다.');
       return;
     }
+    beginPendingAction();
     playCardReserve(muted);
     socket.emit('reserve-card', {
       playerId: humanPlayer.id,
@@ -649,7 +851,7 @@ export default function App() {
 
   const adjustReturnColor = (color, delta) => {
     if (!humanPlayer) return;
-    playChipClink(muted, delta);
+    playChipPick(muted, color, delta);
     setReturnSelection((prev) => {
       const current = prev[color] || 0;
       const held = humanPlayer.gems?.[color] || 0;
@@ -661,8 +863,12 @@ export default function App() {
   };
 
   const handleSubmitGemReturn = () => {
-    if (!humanPlayer || selectedReturnTotal !== excessToReturn) return;
-    playChipClink(muted, 1);
+    if (!humanPlayer || selectedReturnTotal !== excessToReturn || actionPendingRef.current) return;
+    beginPendingAction();
+    const returnedColors = Object.entries(returnSelection)
+      .filter(([, cnt]) => cnt > 0)
+      .map(([c]) => c);
+    playChipCollect(muted, returnedColors, 0.72);
     socket.emit('return-gems', {
       playerId: humanPlayer.id,
       gemCounts: returnSelection,
@@ -692,10 +898,36 @@ export default function App() {
             { name: '코시모', role: 'AI 상인', img: PORTRAITS.cosimo, isHuman: false },
           ];
 
+    const activeThemeMeta = getSoundTheme(soundTheme);
+
     return (
       <main className="setup-stage">
-        <VelvetAmbience />
+        <VelvetAmbience variant="setup" />
         {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
+
+        <button
+          type="button"
+          className={`setup-sound-corner-btn ${showSoundPanel ? 'is-active' : ''}`}
+          onClick={() => setShowSoundPanel((v) => !v)}
+          aria-label="르네상스 음향 테마 설정"
+          aria-expanded={showSoundPanel}
+        >
+          {muted ? <VolumeX size={16} /> : <Music size={16} />}
+          <span>{muted ? '음소거' : activeThemeMeta.name}</span>
+        </button>
+
+        {showSoundPanel && (
+          <SoundThemePopover
+            soundTheme={soundTheme}
+            onSelectTheme={handleSelectSoundTheme}
+            muted={muted}
+            onToggleMute={() => setMuted((m) => !m)}
+            volume={soundVolume}
+            onVolumeChange={handleVolumeChange}
+            onClose={() => setShowSoundPanel(false)}
+            placement="corner"
+          />
+        )}
 
         <div className="setup-top-bar">
           <SplendorEmblem />
@@ -776,9 +1008,16 @@ export default function App() {
                 <div
                   key={idx}
                   className={`setup-seat-card ${seat.isHuman ? 'is-human' : ''}`}
+                  style={{ '--card-stagger': `${idx * 0.9}s` }}
                 >
-                  <div className="setup-seat-portrait-wrap">
+                  <span className="setup-card-sheen" aria-hidden="true" />
+                  <span className="setup-card-glint glint-a" aria-hidden="true" />
+                  <span className="setup-card-glint glint-b" aria-hidden="true" />
+                  <div className={`setup-seat-portrait-wrap is-living motion-${idx % 4}`}>
                     <img src={seat.img} alt={seat.name} className="setup-seat-portrait" />
+                    <span className="setup-portrait-candlelight" aria-hidden="true" />
+                    <span className="setup-portrait-ember ember-a" aria-hidden="true" />
+                    <span className="setup-portrait-ember ember-b" aria-hidden="true" />
                     <span className="setup-seat-role">{seat.role}</span>
                   </div>
                   <div className="setup-seat-footer">
@@ -804,13 +1043,19 @@ export default function App() {
 
               {/* 4th Seat: Toggleable between + Add Merchant and 4th AI Portrait */}
               {setupCount === 4 ? (
-                <div className="setup-seat-card">
-                  <div className="setup-seat-portrait-wrap">
+                <div className="setup-seat-card" style={{ '--card-stagger': '2.7s' }}>
+                  <span className="setup-card-sheen" aria-hidden="true" />
+                  <span className="setup-card-glint glint-a" aria-hidden="true" />
+                  <span className="setup-card-glint glint-b" aria-hidden="true" />
+                  <div className="setup-seat-portrait-wrap is-living motion-3">
                     <img
                       src={seatConfigs[3].img}
                       alt={seatConfigs[3].name}
                       className="setup-seat-portrait"
                     />
+                    <span className="setup-portrait-candlelight" aria-hidden="true" />
+                    <span className="setup-portrait-ember ember-a" aria-hidden="true" />
+                    <span className="setup-portrait-ember ember-b" aria-hidden="true" />
                     <span className="setup-seat-role">{seatConfigs[3].role}</span>
                     <button
                       type="button"
@@ -847,6 +1092,9 @@ export default function App() {
 
             {/* Right Antique Dark-Plum Rulebook Plaque */}
             <aside className="setup-rulebook" aria-label="대전 규칙 요약">
+              <span className="setup-card-sheen is-rulebook" aria-hidden="true" />
+              <span className="setup-card-glint glint-a" aria-hidden="true" />
+              <span className="setup-card-glint glint-b" aria-hidden="true" />
               <div className="setup-rule-header">
                 <h2 className="setup-rule-title">{setupCount}인 길드 대전</h2>
                 <div className="setup-rule-divider" />
@@ -1190,28 +1438,41 @@ export default function App() {
         banner={fxBanner}
       />
 
+      {isHumanActiveClock && isTurnUrgent && (
+        <TurnCountdownSlamOverlay
+          secondsLeft={turnRemainingSec}
+          lifted={selectedGems.length > 0}
+        />
+      )}
+
       {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
 
       {/* MAIN VELVET PLAYMAT: Left Opponents | Center 3x5 Market | Right Poker Chips | Far-Right Nobles */}
       <main className="steam-playmat" aria-label="스플렌더 게임 테이블">
         {/* 1. LEFT EDGE: OPPONENT PORTRAIT PLAQUES */}
         <aside className="steam-opponents-col" aria-label="상대 상인 현황">
-          {leftOpponents.map((opp, idx) => (
-            <OpponentPortraitPlaque
-              key={opp.id}
-              player={opp}
-              index={idx + 1}
-              isActive={gameState.status === 'playing' && currentPlayer?.id === opp.id}
-              isInspected={inspectedPlayerId === opp.id}
-              actionWhisper={playerWhispers[opp.id] || null}
-              scorePulse={scorePulseIds.includes(opp.id)}
-              onClick={
-                sandboxMode === 'spec' || viewMode === 'tv'
-                  ? () => setInspectedPlayerId(opp.id)
-                  : undefined
-              }
-            />
-          ))}
+          {leftOpponents.map((opp, idx) => {
+            const oppIsActive = gameState.status === 'playing' && currentPlayer?.id === opp.id;
+            return (
+              <OpponentPortraitPlaque
+                key={opp.id}
+                player={opp}
+                index={idx + 1}
+                isActive={oppIsActive}
+                isInspected={inspectedPlayerId === opp.id}
+                actionWhisper={playerWhispers[opp.id] || null}
+                scorePulse={scorePulseIds.includes(opp.id)}
+                turnRemainingSec={oppIsActive ? turnRemainingSec : null}
+                turnProgress={oppIsActive ? turnProgress : 1}
+                isTurnUrgent={oppIsActive && isTurnUrgent}
+                onClick={
+                  sandboxMode === 'spec' || viewMode === 'tv'
+                    ? () => setInspectedPlayerId(opp.id)
+                    : undefined
+                }
+              />
+            );
+          })}
         </aside>
 
         {/* 2. CENTER: 3x5 DEVELOPMENT CARD MARKET ON OPEN VELVET */}
@@ -1239,7 +1500,7 @@ export default function App() {
                     interactive={viewMode === 'sandbox'}
                     onClick={
                       viewMode === 'sandbox'
-                        ? () => setInspectCard({ card, fromReserved: false })
+                        ? () => handleInspectCard(card, false)
                         : undefined
                     }
                   />
@@ -1360,12 +1621,33 @@ export default function App() {
         </aside>
       )}
 
+      {/* SOUND THEME POPOVER (toggled cleanly from bottom dock) */}
+      {showSoundPanel && (
+        <SoundThemePopover
+          soundTheme={soundTheme}
+          onSelectTheme={handleSelectSoundTheme}
+          muted={muted}
+          onToggleMute={() => setMuted((m) => !m)}
+          volume={soundVolume}
+          onVolumeChange={handleVolumeChange}
+          onClose={() => setShowSoundPanel(false)}
+          placement="dock"
+        />
+      )}
+
       {/* BOTTOM HORIZONTAL MERCHANT DOCK */}
       <footer
-        className={`steam-bottom-dock ${interactiveBoard ? 'is-my-turn' : ''}`}
+        className={`steam-bottom-dock ${dockIsCurrent && gameState.status === 'playing' ? 'is-my-turn' : ''} ${dockIsCurrent && isTurnUrgent ? 'is-urgent' : ''}`}
         aria-label="내 상인 트레이"
         data-dock-merchant={dockMerchant?.id || ''}
       >
+        <TurnGlowBorder
+          active={Boolean(dockIsCurrent && gameState.status === 'playing')}
+          rx={10}
+          inset={3}
+          urgent={Boolean(dockIsCurrent && isTurnUrgent)}
+        />
+
         {/* Dock Left: Merchant Portrait & Prestige Medal */}
         {dockMerchant ? (
           <div className="dock-merchant-identity">
@@ -1388,18 +1670,40 @@ export default function App() {
                 >
                   {dockMerchant.points}
                 </div>
+                {dockIsCurrent && gameState.status === 'playing' && turnRemainingSec !== null && (
+                  <span
+                    key={isTurnUrgent ? `dock-sec-${turnRemainingSec}` : 'dock-sec'}
+                    className={`turn-timer-pill numeric ${isTurnUrgent ? 'is-urgent' : ''}`}
+                    data-turn-timer="dock"
+                    title="턴 제한 시간 30초 (초과 시 자동 선택)"
+                  >
+                    {turnRemainingSec}s
+                  </span>
+                )}
               </div>
               <span className={`dock-turn-status ${interactiveBoard ? 'is-turn' : ''}`}>
                 {gameState.status === 'finished'
                   ? '대전 종료'
                   : interactiveBoard
-                    ? '당신의 턴 · 보석·카드 선택'
+                    ? isTurnUrgent
+                      ? `${turnRemainingSec}초 후 자동 선택!`
+                      : '당신의 턴 · 보석·카드 선택'
                     : sandboxMode === 'spec'
                       ? `AI 관전 중 · ${currentPlayer?.name?.replace(' (AI)', '') || ''} 차례`
                       : dockIsCurrent
-                        ? '진행 중'
+                        ? mustReturnGems
+                          ? '초과 보석 반납 필요'
+                          : '진행 중'
                         : `${currentPlayer?.name?.replace(' (AI)', '') || '상대'} 차례`}
               </span>
+              {dockIsCurrent && gameState.status === 'playing' && turnRemainingSec !== null && (
+                <div className={`turn-timer-track is-dock ${isTurnUrgent ? 'is-urgent' : ''}`} aria-hidden="true">
+                  <div
+                    className="turn-timer-fill"
+                    style={{ width: `${Math.max(0, Math.min(100, turnProgress * 100))}%` }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -1476,7 +1780,7 @@ export default function App() {
                 interactive={viewMode === 'sandbox' && rCard.id !== 'secret'}
                 onClick={
                   viewMode === 'sandbox' && rCard.id !== 'secret'
-                    ? () => setInspectCard({ card: rCard, fromReserved: true })
+                    ? () => handleInspectCard(rCard, true)
                     : undefined
                 }
               />
@@ -1490,7 +1794,7 @@ export default function App() {
             type="button"
             className={`dock-icon-btn ${muted ? '' : 'is-active'}`}
             onClick={() => setMuted((m) => !m)}
-            title={muted ? '효과음 켜기' : '효과음 끄기'}
+            title={muted ? '효과음 켜기 (M)' : '효과음 끄기 (M)'}
             aria-label={muted ? '효과음 켜기' : '효과음 끄기'}
           >
             {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -1498,8 +1802,25 @@ export default function App() {
 
           <button
             type="button"
+            className={`dock-icon-btn ${showSoundPanel ? 'is-active' : ''}`}
+            onClick={() => {
+              setShowSoundPanel((v) => !v);
+              setShowChronicle(false);
+            }}
+            title={`음향 테마 (${getSoundTheme(soundTheme).name})`}
+            aria-label="르네상스 음향 테마 설정"
+            aria-expanded={showSoundPanel}
+          >
+            <Music size={18} />
+          </button>
+
+          <button
+            type="button"
             className={`dock-icon-btn ${showChronicle ? 'is-active' : ''}`}
-            onClick={() => setShowChronicle((v) => !v)}
+            onClick={() => {
+              setShowChronicle((v) => !v);
+              setShowSoundPanel(false);
+            }}
             title="길드 연대기 (기록)"
             aria-label="길드 기록 열기"
           >
@@ -1549,6 +1870,7 @@ export default function App() {
               setInspectCard(null);
               setShowChronicle(false);
               setConfirmRestart(false);
+              socket.emit('leave-sandbox');
               setViewMode('selector');
             }}
             title="설정 화면으로 돌아가기"
@@ -1666,7 +1988,10 @@ export default function App() {
               <button
                 type="button"
                 className="btn-gilded-secondary"
-                onClick={() => setViewMode('selector')}
+                onClick={() => {
+                  socket.emit('leave-sandbox');
+                  setViewMode('selector');
+                }}
               >
                 처음으로
               </button>
