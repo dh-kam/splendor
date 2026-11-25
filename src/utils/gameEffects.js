@@ -115,13 +115,17 @@ export function diffGameStates(prev, next) {
     });
   }
 
-  // 5. Turn change detection
+  // 5. Turn change detection (captures both concluding player and next active player)
   const nextActive = next.players?.[next.currentPlayerIndex] || null;
   if (next.status === 'playing' && nextActive && nextActive.id !== prevActive?.id) {
     events.turnChangedTo = {
       playerId: nextActive.id,
       playerName: nextActive.name,
       isAi: !!nextActive.isAi,
+      fromPlayerId: prevActive?.id || null,
+      fromPlayerName: prevActive?.name || null,
+      fromIsAi: !!prevActive?.isAi,
+      turnSequence: next.turnSequence ?? null,
     };
   }
 

@@ -19,6 +19,7 @@ export const SOUND_THEMES = {
     cardSelectNotes: [392.0, 493.88, 587.33], // G4 - B4 - D5 (warm lute arpeggio)
     cardBuyChord: [523.25, 659.25, 783.99, 1046.5], // C5 major lute roll
     chipCollectChord: [587.33, 739.99, 880.0], // D5 major sunlit triad
+    turnTransitionFlourish: [440.0, 587.33, 739.99, 880.0], // A4 - D5 - F#5 - A5 gilded Venetian harp sweep
     victoryWinFanfare: [
       { freq: 523.25, delay: 0, dur: 0.24, gain: 0.068 },
       { freq: 659.25, delay: 0.11, dur: 0.26, gain: 0.072 },
@@ -50,6 +51,7 @@ export const SOUND_THEMES = {
     cardSelectNotes: [523.25, 659.25, 987.77], // C5 - E5 - B5 crystalline chime
     cardBuyChord: [587.33, 880.0, 1174.66, 1479.98], // D5 radiant fifths
     chipCollectChord: [659.25, 987.77, 1318.51], // E5 glass carillon
+    turnTransitionFlourish: [523.25, 783.99, 987.77, 1318.51], // C5 - G5 - B5 - E6 Florentine gilded carillon sweep
     victoryWinFanfare: [
       { freq: 587.33, delay: 0, dur: 0.34, gain: 0.062 },
       { freq: 880.0, delay: 0.12, dur: 0.38, gain: 0.068 },
@@ -81,6 +83,7 @@ export const SOUND_THEMES = {
     cardSelectNotes: [329.63, 440.0, 523.25], // E4 - A4 - C5 crisp harpsichord pluck
     cardBuyChord: [440.0, 554.37, 659.25, 880.0], // A4 baroque cadence
     chipCollectChord: [493.88, 659.25, 783.99], // B4/G5 artisan flourish
+    turnTransitionFlourish: [392.0, 587.33, 659.25, 987.77], // G4 - D5 - E5 - B5 gilded harpsichord flourish
     victoryWinFanfare: [
       { freq: 440.0, delay: 0, dur: 0.18, gain: 0.058 },
       { freq: 554.37, delay: 0.09, dur: 0.2, gain: 0.062 },
@@ -253,6 +256,60 @@ export function buildEventNotes(themeId, eventType, options = {}) {
       return notes;
     }
 
+    case 'chipReturn': {
+      const colors = Array.isArray(options.colors) && options.colors.length > 0
+        ? options.colors.slice(0, 4)
+        : ['white', 'blue'];
+      const notes = [];
+      colors.forEach((col, idx) => {
+        const ratio = getGemPitchRatio(col, -1);
+        const baseHz = theme.chipBaseHz * 0.78 * ratio * Math.pow(0.94, idx);
+        notes.push({
+          freq: baseHz,
+          endFreq: baseHz * 0.74,
+          delay: idx * 0.065,
+          dur: 0.11 * decay,
+          gain: 0.062,
+          wave: theme.chipWave,
+          filterHz: theme.lowpassHz * 0.95,
+        });
+      });
+      notes.push({
+        freq: (theme.cardSelectNotes[0] || 392.0) * 0.75,
+        endFreq: (theme.cardSelectNotes[0] || 392.0) * 0.66,
+        delay: colors.length * 0.065 + 0.015,
+        dur: 0.18 * decay,
+        gain: 0.044,
+        wave: 'sine',
+        filterHz: 1400,
+      });
+      return notes;
+    }
+
+    case 'cardFlip': {
+      const base = theme.cardSelectNotes[0] || 392.0;
+      return [
+        {
+          freq: base * 0.85,
+          endFreq: base * 1.12,
+          delay: 0,
+          dur: 0.095 * decay,
+          gain: 0.046,
+          wave: theme.cardWave,
+          filterHz: theme.lowpassHz,
+        },
+        {
+          freq: base * 1.25,
+          endFreq: base * 1.18,
+          delay: 0.075,
+          dur: 0.14 * decay,
+          gain: 0.038,
+          wave: theme.harmonicWave,
+          filterHz: theme.lowpassHz * 1.1,
+        },
+      ];
+    }
+
     case 'turnBell': {
       const base = theme.cardSelectNotes[1] || 493.88;
       return [
@@ -273,6 +330,53 @@ export function buildEventNotes(themeId, eventType, options = {}) {
           filterHz: theme.lowpassHz * 1.15,
         },
       ];
+    }
+
+    case 'turnTransition': {
+      const isSelf = Boolean(options.isSelf);
+      const flourish = theme.turnTransitionFlourish || [440.0, 587.33, 739.99, 880.0];
+      const topFreq = flourish[flourish.length - 1];
+      const notes = flourish.map((freq, idx) => ({
+        freq,
+        delay: 0.02 + idx * 0.044,
+        dur: (0.24 + idx * 0.055) * decay,
+        gain: (isSelf ? 0.046 : 0.034) + idx * 0.004,
+        wave: idx === 0 ? theme.cardWave : theme.harmonicWave,
+        filterHz: theme.lowpassHz * (1.08 + idx * 0.06),
+      }));
+
+      if (isSelf) {
+        // Luminous gilded crown-chime harmonic for the player's own incoming turn
+        notes.push(
+          {
+            freq: topFreq * 1.4983,
+            delay: 0.195,
+            dur: 0.44 * decay,
+            gain: 0.052,
+            wave: 'sine',
+            filterHz: theme.lowpassHz * 1.35,
+          },
+          {
+            freq: topFreq * 2.0,
+            delay: 0.245,
+            dur: 0.48 * decay,
+            gain: 0.034,
+            wave: 'sine',
+            filterHz: theme.lowpassHz * 1.45,
+          }
+        );
+      } else {
+        // Subtle velvet-gold resolving shimmer for opponent-to-opponent handoff
+        notes.push({
+          freq: topFreq * 1.25,
+          delay: 0.185,
+          dur: 0.34 * decay,
+          gain: 0.028,
+          wave: 'sine',
+          filterHz: theme.lowpassHz * 1.2,
+        });
+      }
+      return notes;
     }
 
     case 'nobleFanfare': {
@@ -336,3 +440,94 @@ export function buildEventNotes(themeId, eventType, options = {}) {
       return [];
   }
 }
+
+/**
+ * Pure Renaissance chamber BGM score definitions (16-step seamless loops)
+ * tailored to each sound theme so switching themes transforms the live soundtrack.
+ */
+export const BGM_SCORES = {
+  // Venetian Court: Warm lute & harp pavane in D Dorian / G Major
+  court: {
+    stepSec: 0.38,
+    leadWave: 'triangle',
+    arpWave: 'sine',
+    bassWave: 'triangle',
+    lowpassHz: 1850,
+    steps: [
+      { bass: 146.83, arp: 293.66, lead: 587.33 }, // D3, D4, D5
+      { arp: 349.23 },                             // F4
+      { arp: 440.0, lead: 659.25 },                // A4, E5
+      { arp: 349.23, lead: 587.33 },               // F4, D5
+      { bass: 130.81, arp: 261.63, lead: 523.25 }, // C3, C4, C5
+      { arp: 329.63 },                             // E4
+      { arp: 392.0, lead: 587.33 },                // G4, D5
+      { arp: 329.63, lead: 493.88 },               // E4, B4
+      { bass: 116.54, arp: 233.08, lead: 440.0 },  // Bb2, Bb3, A4
+      { arp: 293.66 },                             // D4
+      { arp: 349.23, lead: 523.25 },               // F4, C5
+      { arp: 293.66, lead: 440.0 },                // D4, A4
+      { bass: 110.0, arp: 220.0, lead: 392.0 },    // A2, A3, G4
+      { arp: 277.18, lead: 440.0 },                // C#4, A4
+      { arp: 329.63, lead: 523.25 },               // E4, C5
+      { arp: 293.66, lead: 493.88 },               // D4, B4
+    ],
+  },
+  // Florence Cathedral: Ethereal chamber organ & celesta chorale in C Major / A Minor
+  cathedral: {
+    stepSec: 0.46,
+    leadWave: 'sine',
+    arpWave: 'sine',
+    bassWave: 'sine',
+    lowpassHz: 2400,
+    steps: [
+      { bass: 130.81, arp: 392.0, lead: 523.25 },  // C3, G4, C5
+      { arp: 329.63 },
+      { arp: 523.25, lead: 659.25 },               // C5, E5
+      { arp: 392.0 },
+      { bass: 110.0, arp: 329.63, lead: 587.33 },  // A2, E4, D5
+      { arp: 440.0 },
+      { arp: 523.25, lead: 493.88 },               // C5, B4
+      { arp: 329.63 },
+      { bass: 174.61, arp: 349.23, lead: 523.25 }, // F3, F4, C5
+      { arp: 440.0 },
+      { arp: 523.25, lead: 659.25 },
+      { arp: 440.0, lead: 587.33 },
+      { bass: 196.0, arp: 392.0, lead: 587.33 },   // G3, G4, D5
+      { arp: 493.88 },
+      { arp: 587.33, lead: 493.88 },
+      { arp: 392.0 },
+    ],
+  },
+  // Artisan Guild: Lively baroque harpsichord & plucked strings galliard in A Minor
+  guild: {
+    stepSec: 0.31,
+    leadWave: 'sawtooth',
+    arpWave: 'triangle',
+    bassWave: 'triangle',
+    lowpassHz: 1650,
+    steps: [
+      { bass: 110.0, arp: 220.0, lead: 440.0 },    // A2, A3, A4
+      { arp: 261.63, lead: 523.25 },               // C4, C5
+      { arp: 329.63, lead: 659.25 },               // E4, E5
+      { arp: 261.63, lead: 587.33 },               // C4, D5
+      { bass: 130.81, arp: 261.63, lead: 523.25 }, // C3, C4, C5
+      { arp: 329.63 },
+      { arp: 392.0, lead: 587.33 },                // G4, D5
+      { arp: 329.63, lead: 523.25 },
+      { bass: 146.83, arp: 293.66, lead: 587.33 }, // D3, D4, D5
+      { arp: 349.23, lead: 523.25 },
+      { arp: 440.0, lead: 493.88 },                // A4, B4
+      { arp: 349.23, lead: 440.0 },
+      { bass: 164.81, arp: 246.94, lead: 392.0 },  // E3, B3, G4
+      { arp: 329.63, lead: 440.0 },
+      { arp: 392.0, lead: 493.88 },
+      { arp: 329.63, lead: 392.0 },
+    ],
+  },
+};
+
+export function getBgmScore(themeId) {
+  const theme = getSoundTheme(themeId);
+  return BGM_SCORES[theme.id] || BGM_SCORES[DEFAULT_SOUND_THEME];
+}
+

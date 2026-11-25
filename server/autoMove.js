@@ -169,8 +169,21 @@ export function executeAutoMove(game, playerId, { isTimeout = false } = {}) {
   if (!move) return { success: false, reason: 'Not active turn' };
 
   const player = game.getCurrentPlayer();
+  const wasAlreadyAuto = Boolean(player && !player.isAi && player.autoMode);
+  let autoModeEnabled = false;
+
   if (isTimeout && player) {
-    game.log(`시간 초과(30초): ${player.name} 자동 선택 진행`);
+    if (!player.isAi) {
+      player.autoMode = true;
+      autoModeEnabled = true;
+      game.log(
+        wasAlreadyAuto
+          ? `AUTO 모드(10초): ${player.name} 자동 선택 진행`
+          : `시간 초과(30초): ${player.name} AUTO 모드 전환 및 자동 선택 진행`
+      );
+    } else {
+      game.log(`시간 초과(30초): ${player.name} 자동 선택 진행`);
+    }
   }
 
   let res;
@@ -215,5 +228,5 @@ export function executeAutoMove(game, playerId, { isTimeout = false } = {}) {
     game.returnGems(playerId, excessCounts);
   }
 
-  return { success: true, move };
+  return { success: true, move, autoModeEnabled, wasAlreadyAuto };
 }

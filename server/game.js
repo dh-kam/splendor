@@ -10,11 +10,12 @@ function shuffle(array) {
 }
 
 export const TURN_DURATION_MS = 30000;
+export const AUTO_TURN_DURATION_MS = 10000;
 
 export class SplendorGame {
   constructor() {
     this.status = 'lobby'; // lobby, playing, finished
-    this.players = []; // Array of { id, name, gems, cards, discounts, reserved, points, nobles }
+    this.players = []; // Array of { id, name, gems, cards, discounts, reserved, points, nobles, autoMode }
     this.currentPlayerIndex = 0;
     this.turnSequence = 0;
     this.turnDurationMs = TURN_DURATION_MS;
@@ -66,7 +67,8 @@ export class SplendorGame {
       discounts: { white: 0, blue: 0, green: 0, red: 0, black: 0 },
       reserved: [],
       points: 0,
-      nobles: []
+      nobles: [],
+      autoMode: false
     });
 
     this.log(`${name} 상인이 길드에 입장했습니다.`);
@@ -135,11 +137,46 @@ export class SplendorGame {
     return true;
   }
 
+  getActiveTurnDurationMs() {
+    const active = this.getCurrentPlayer();
+    if (active && !active.isAi && active.autoMode) {
+      return AUTO_TURN_DURATION_MS;
+    }
+    return TURN_DURATION_MS;
+  }
+
   resetTurnClock() {
     this.turnSequence += 1;
     const now = Date.now();
+    this.turnDurationMs = this.getActiveTurnDurationMs();
     this.turnStartedAt = now;
     this.turnDeadlineAt = now + this.turnDurationMs;
+  }
+
+  /**
+   * Disables AUTO mode for a human player. If it is currently their turn,
+   * restores the full 30-second turn clock without incrementing turnSequence
+   * so in-progress chip selection stays active.
+   */
+  disableAutoMode(playerId, { extendClock = true } = {}) {
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player || player.isAi || !player.autoMode) {
+      return { changed: false };
+    }
+    player.autoMode = false;
+    this.log(`${player.name}: AUTO 모드 해제 (수동 조작 전환)`);
+
+    if (
+      extendClock &&
+      this.status === 'playing' &&
+      this.getCurrentPlayer()?.id === playerId
+    ) {
+      const now = Date.now();
+      this.turnDurationMs = TURN_DURATION_MS;
+      this.turnStartedAt = now;
+      this.turnDeadlineAt = now + TURN_DURATION_MS;
+    }
+    return { changed: true };
   }
 
   log(message) {

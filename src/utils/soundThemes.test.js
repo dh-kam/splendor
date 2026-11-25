@@ -5,6 +5,7 @@ import {
   SOUND_THEMES,
   SOUND_THEME_LIST,
   getSoundTheme,
+  getBgmScore,
   clampVolume,
   getGemPitchRatio,
   buildEventNotes,
@@ -66,5 +67,70 @@ test('higher card tiers produce higher cardSelect root pitch across themes', () 
     const t2 = buildEventNotes(theme.id, 'cardSelect', { tier: 2 })[0].freq;
     const t3 = buildEventNotes(theme.id, 'cardSelect', { tier: 3 })[0].freq;
     assert.ok(t1 < t2 && t2 < t3, `${theme.id} tier pitches should ascend`);
+  }
+});
+
+test('builds chipReturn and cardFlip note schedules across all themes', () => {
+  for (const theme of SOUND_THEME_LIST) {
+    const retNotes = buildEventNotes(theme.id, 'chipReturn', { colors: ['red', 'blue'] });
+    assert.ok(retNotes.length >= 2, `${theme.id}:chipReturn should schedule notes`);
+    for (const note of retNotes) {
+      assert.ok(note.freq > 100 && note.freq < 12000);
+      assert.ok(note.gain > 0 && note.gain <= 0.1);
+    }
+
+    const flipNotes = buildEventNotes(theme.id, 'cardFlip', { tier: 3 });
+    assert.ok(flipNotes.length >= 2, `${theme.id}:cardFlip should schedule notes`);
+    for (const note of flipNotes) {
+      assert.ok(note.freq > 100 && note.freq < 12000);
+      assert.ok(note.gain > 0 && note.gain <= 0.1);
+    }
+  }
+});
+
+test('provides valid 16-step Renaissance BGM chamber scores for all themes', () => {
+  for (const theme of SOUND_THEME_LIST) {
+    const score = getBgmScore(theme.id);
+    assert.ok(score.stepSec >= 0.2 && score.stepSec <= 0.7, `${theme.id} BGM stepSec should be stately`);
+    assert.ok(score.lowpassHz >= 1000 && score.lowpassHz <= 4000, `${theme.id} BGM lowpass should be warm`);
+    assert.equal(score.steps.length, 16, `${theme.id} BGM should have 16 steps`);
+    const leadCount = score.steps.filter((s) => typeof s.lead === 'number').length;
+    const bassCount = score.steps.filter((s) => typeof s.bass === 'number').length;
+    const arpCount = score.steps.filter((s) => typeof s.arp === 'number').length;
+    assert.ok(leadCount >= 8, `${theme.id} should have audible lead melody notes`);
+    assert.ok(bassCount >= 4, `${theme.id} should have harmonic bass anchors`);
+    assert.equal(arpCount, 16, `${theme.id} should have steady chamber arpeggio`);
+  }
+  // Safe fallback for unknown theme ID
+  assert.deepEqual(getBgmScore('nonexistent'), getBgmScore(DEFAULT_SOUND_THEME));
+});
+
+test('builds distinct ascending gilded flourish notes for turnTransition across all themes', () => {
+  for (const theme of SOUND_THEME_LIST) {
+    const bellNotes = buildEventNotes(theme.id, 'turnBell');
+    const oppFlourish = buildEventNotes(theme.id, 'turnTransition', { isSelf: false });
+    const selfFlourish = buildEventNotes(theme.id, 'turnTransition', { isSelf: true });
+
+    assert.ok(oppFlourish.length >= 5, `${theme.id} opponent flourish should have ascending sweep + shimmer`);
+    assert.ok(selfFlourish.length > oppFlourish.length, `${theme.id} self flourish should add gilded crown chime`);
+    assert.ok(selfFlourish.length > bellNotes.length, `${theme.id} turnTransition should be distinct from turnBell`);
+
+    // Verify ascending melodic contour across the 4 primary flourish notes
+    for (let i = 1; i < 4; i += 1) {
+      assert.ok(
+        oppFlourish[i].freq > oppFlourish[i - 1].freq,
+        `${theme.id} flourish note ${i} should ascend`
+      );
+      assert.ok(
+        oppFlourish[i].delay > oppFlourish[i - 1].delay,
+        `${theme.id} flourish note ${i} should stagger forward`
+      );
+    }
+
+    for (const note of [...oppFlourish, ...selfFlourish]) {
+      assert.ok(note.freq > 100 && note.freq < 12000, 'frequency in audible range');
+      assert.ok(note.dur > 0 && note.dur <= 1.6, 'graceful flourish duration');
+      assert.ok(note.gain > 0 && note.gain <= 0.1, 'subtle non-harsh gain ceiling');
+    }
   }
 });

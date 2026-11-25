@@ -1,11 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 
 /**
  * Orbiting golden glow border overlay that traces the exact rounded-rectangle
  * perimeter of any active player deck/tray at uniform constant speed using
  * SVG pathLength="100" stroke-dashoffset animation.
+ * Uses layered translucent strokes instead of SVG feGaussianBlur filters so
+ * mounting/unmounting never triggers GPU compositor invalidation flicker.
  */
-export function TurnGlowBorder({
+export const TurnGlowBorder = memo(function TurnGlowBorder({
   active = false,
   rx = 12,
   urgent = false,
@@ -65,9 +67,6 @@ export function TurnGlowBorder({
               <stop offset="50%" stopColor={urgent ? '#fbbf24' : '#f3cb6c'} />
               <stop offset="100%" stopColor={urgent ? '#ef4444' : '#d99a2b'} />
             </linearGradient>
-            <filter id={`tg-blur-${safeId}`} x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3.2" />
-            </filter>
           </defs>
 
           {/* Subtle golden perimeter rail */}
@@ -80,7 +79,7 @@ export function TurnGlowBorder({
             className="turn-glow-rail"
           />
 
-          {/* Soft wide halo comet */}
+          {/* Soft wide halo comet (layered translucent stroke, zero SVG filter stutter) */}
           <rect
             x={inset}
             y={inset}
@@ -89,7 +88,7 @@ export function TurnGlowBorder({
             rx={clampedRx}
             pathLength="100"
             stroke={`url(#tg-core-${safeId})`}
-            filter={`url(#tg-blur-${safeId})`}
+            strokeOpacity="0.34"
             className="turn-glow-halo"
           />
 
@@ -120,4 +119,4 @@ export function TurnGlowBorder({
       )}
     </div>
   );
-}
+});

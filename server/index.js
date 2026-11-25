@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { SplendorGame } from './game.js';
 import { executeAutoMove } from './autoMove.js';
+import { RoomManager, LOCAL_ROOM_ID, canResetRoom } from './roomManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,37 +21,7 @@ const io = new Server(httpServer, {
 });
 
 const PORT = process.env.PORT || 3000;
-let game = new SplendorGame();
-
-// Session mapping: playerId -> { name, socketId }
-const sessions = new Map();
-
-// Managed authoritative turn timers (always cleared on reset / restart / game end)
-let aiTurnTimer = null;
-let scheduledAiKey = null;
-let turnTimeoutTimer = null;
-let scheduledTimeoutKey = null;
-
-function clearAiTimer() {
-  if (aiTurnTimer) {
-    clearTimeout(aiTurnTimer);
-    aiTurnTimer = null;
-  }
-  scheduledAiKey = null;
-}
-
-function clearTimeoutTimer() {
-  if (turnTimeoutTimer) {
-    clearTimeout(turnTimeoutTimer);
-    turnTimeoutTimer = null;
-  }
-  scheduledTimeoutKey = null;
-}
-
-function clearTurnTimers() {
-  clearAiTimer();
-  clearTimeoutTimer();
-}
+const roomManager = new RoomManager();
 
 // Helper to get local IP address
 function getLocalIP() {
@@ -69,9 +40,11 @@ function getLocalIP() {
 
 const LOCAL_IP = getLocalIP();
 
-// Helper to get game state masked for a specific player
-function getMaskedState(playerId = null) {
+// Helper to get game state masked for a specific player inside a room
+function getMaskedState(room, playerId = null) {
+  const game = room.game;
   const state = {
+    roomId: room.id,
     status: game.status,
     currentPlayerIndex: game.currentPlayerIndex,
     turnSequence: game.turnSequence,
@@ -98,6 +71,7 @@ function getMaskedState(playerId = null) {
       points: p.points,
       nobles: p.nobles,
       requiresGemReturn: p.requiresGemReturn,
+      autoMode: Boolean(p.autoMode),
       isAi: p.isAi,
       aiActive: p.aiActive,
       // Hide reserved card details if this is not the owning player and not sandbox
@@ -113,37 +87,78 @@ function getMaskedState(playerId = null) {
   return state;
 }
 
-// Re-sync requesting client whenever an action is rejected to self-heal any stale turn state
-function emitActionRejection(socket, playerId, reason) {
-  socket.emit('error-message', reason);
-  const maskTarget = socket.rooms.has('sandbox') ? 'sandbox' : (playerId || null);
-  socket.emit('state-update', getMaskedState(maskTarget));
+function getRoomSocketCount(roomId) {
+  const members = io.sockets.adapter.rooms.get(roomId);
+  return members ? members.size : 0;
 }
 
-// Broadcast game state to all clients and schedule authoritative AI & 30s turn timeout timers
-function broadcastState() {
-  // TV View gets the complete state (with masked reserved hands)
-  io.to('tv').emit('state-update', getMaskedState(null));
+function detachSocketFromSandbox(socket) {
+  const prevSandboxRoomId = socket.data.sandboxRoomId;
+  if (!prevSandboxRoomId) return;
+  socket.leave(prevSandboxRoomId);
+  socket.data.sandboxRoomId = null;
 
-  // Sandbox View gets the complete unmasked state
-  io.to('sandbox').emit('state-update', getMaskedState('sandbox'));
-  const sandboxSockets = io.sockets.adapter.rooms.get('sandbox');
+  const prevRoom = roomManager.getRoom(prevSandboxRoomId);
+  if (prevRoom && getRoomSocketCount(prevSandboxRoomId) === 0) {
+    roomManager.clearTurnTimers(prevRoom);
+  }
+}
 
-  // Each player gets their own customized state (skip if already delivered via sandbox room)
-  for (const [pId, session] of sessions.entries()) {
-    if (session.socketId && !sandboxSockets?.has(session.socketId)) {
-      io.to(session.socketId).emit('state-update', getMaskedState(pId));
+function attachSocketToSandbox(socket, roomId) {
+  if (socket.data.sandboxRoomId && socket.data.sandboxRoomId !== roomId) {
+    detachSocketFromSandbox(socket);
+  }
+  socket.leave('tv');
+  socket.join(roomId);
+  socket.data.sandboxRoomId = roomId;
+  socket.data.roomId = roomId;
+}
+
+function getActiveRoomForSocket(socket) {
+  const roomId = socket.data.roomId || LOCAL_ROOM_ID;
+  const room = roomManager.getRoom(roomId);
+  if (room) return room;
+  if (roomId === LOCAL_ROOM_ID) return roomManager.getLocalRoom();
+  return null;
+}
+
+// Re-sync requesting client whenever an action is rejected to self-heal any stale turn state
+function emitActionRejection(socket, room, playerId, reason) {
+  socket.emit('error-message', reason);
+  const maskTarget = room.kind === 'sandbox' ? 'sandbox' : (playerId || null);
+  socket.emit('state-update', getMaskedState(room, maskTarget));
+}
+
+function emitTimeoutToRoom(room, payload) {
+  if (room.kind === 'sandbox') {
+    io.to(room.id).emit('turn-timeout', payload);
+    return;
+  }
+  io.to('tv').emit('turn-timeout', payload);
+  for (const [, session] of room.sessions.entries()) {
+    if (session.socketId) {
+      io.to(session.socketId).emit('turn-timeout', payload);
     }
   }
+}
 
+// Schedule authoritative AI & 30s turn timeout timers exclusively for this room
+function scheduleRoomTimers(room) {
+  const game = room.game;
   if (game.status !== 'playing') {
-    clearTurnTimers();
+    roomManager.clearTurnTimers(room);
+    return;
+  }
+
+  // Do not run background timers on an empty sandbox room
+  if (room.kind === 'sandbox' && getRoomSocketCount(room.id) === 0) {
+    roomManager.clearTurnTimers(room);
     return;
   }
 
   const currentPlayer = game.getCurrentPlayer();
   if (!currentPlayer) {
-    clearTurnTimers();
+    roomManager.clearTurnTimers(room);
     return;
   }
 
@@ -154,112 +169,173 @@ function broadcastState() {
 
   // 1. Schedule AI move if active merchant is an AI
   if (currentPlayer.isAi) {
-    if (scheduledAiKey !== turnKey) {
-      clearAiTimer();
-      scheduledAiKey = turnKey;
+    if (room.scheduledAiKey !== turnKey) {
+      roomManager.clearAiTimer(room);
+      room.scheduledAiKey = turnKey;
       currentPlayer.aiActive = true;
-      aiTurnTimer = setTimeout(() => {
-        aiTurnTimer = null;
-        scheduledAiKey = null;
+      room.aiTurnTimer = setTimeout(() => {
+        room.aiTurnTimer = null;
+        room.scheduledAiKey = null;
         if (
-          game !== expectedGame ||
-          game.status !== 'playing' ||
-          game.turnSequence !== expectedSeq ||
-          game.getCurrentPlayer()?.id !== expectedPlayerId
+          room.game !== expectedGame ||
+          room.game.status !== 'playing' ||
+          room.game.turnSequence !== expectedSeq ||
+          room.game.getCurrentPlayer()?.id !== expectedPlayerId
         ) {
           return;
         }
-        executeAutoMove(game, expectedPlayerId, { isTimeout: false });
-        broadcastState();
+        executeAutoMove(room.game, expectedPlayerId, { isTimeout: false });
+        broadcastRoomState(room);
       }, 1500);
     }
   } else {
-    clearAiTimer();
+    roomManager.clearAiTimer(room);
   }
 
-  // 2. Schedule authoritative 30-second turn deadline for every active turn
-  if (scheduledTimeoutKey !== `${expectedSeq}:${expectedPlayerId}`) {
-    clearTimeoutTimer();
-    scheduledTimeoutKey = `${expectedSeq}:${expectedPlayerId}`;
+  // 2. Schedule authoritative turn deadline (30s normal / 10s AUTO mode)
+  const timeoutKey = `${expectedSeq}:${expectedPlayerId}:${game.turnDeadlineAt || 0}`;
+  if (room.scheduledTimeoutKey !== timeoutKey) {
+    roomManager.clearTimeoutTimer(room);
+    room.scheduledTimeoutKey = timeoutKey;
     const remainingMs = Math.max(
       120,
       (game.turnDeadlineAt || Date.now() + game.turnDurationMs) - Date.now()
     );
-    turnTimeoutTimer = setTimeout(() => {
-      turnTimeoutTimer = null;
-      scheduledTimeoutKey = null;
+    room.turnTimeoutTimer = setTimeout(() => {
+      room.turnTimeoutTimer = null;
+      room.scheduledTimeoutKey = null;
       if (
-        game !== expectedGame ||
-        game.status !== 'playing' ||
-        game.turnSequence !== expectedSeq ||
-        game.getCurrentPlayer()?.id !== expectedPlayerId
+        room.game !== expectedGame ||
+        room.game.status !== 'playing' ||
+        room.game.turnSequence !== expectedSeq ||
+        room.game.getCurrentPlayer()?.id !== expectedPlayerId
       ) {
         return;
       }
-      const actor = game.getCurrentPlayer();
-      const result = executeAutoMove(game, expectedPlayerId, { isTimeout: true });
+      const actor = room.game.getCurrentPlayer();
+      const result = executeAutoMove(room.game, expectedPlayerId, { isTimeout: true });
       if (result.success) {
-        io.emit('turn-timeout', {
+        emitTimeoutToRoom(room, {
           playerId: expectedPlayerId,
           playerName: actor?.name || '',
           turnSequence: expectedSeq,
           action: result.move?.type || 'auto',
+          autoModeEnabled: Boolean(result.autoModeEnabled),
+          wasAlreadyAuto: Boolean(result.wasAlreadyAuto),
         });
-        broadcastState();
+        broadcastRoomState(room);
       }
     }, remainingMs);
   }
 }
 
+// Broadcast game state ONLY to clients belonging to this room
+function broadcastRoomState(room) {
+  room.lastActivityAt = Date.now();
+
+  if (room.kind === 'sandbox') {
+    io.to(room.id).emit('state-update', getMaskedState(room, 'sandbox'));
+  } else {
+    // Local TV + Mobile multiplayer room
+    io.to('tv').emit('state-update', getMaskedState(room, null));
+    for (const [pId, session] of room.sessions.entries()) {
+      if (session.socketId) {
+        io.to(session.socketId).emit('state-update', getMaskedState(room, pId));
+      }
+    }
+  }
+
+  scheduleRoomTimers(room);
+}
+
+// Periodically prune long-idle abandoned sandbox rooms
+setInterval(() => {
+  const activeIds = new Set();
+  for (const [roomId, room] of roomManager.rooms.entries()) {
+    if (room.kind === 'sandbox' && getRoomSocketCount(roomId) > 0) {
+      activeIds.add(roomId);
+    }
+  }
+  roomManager.pruneStaleSandboxRooms(activeIds);
+}, 5 * 60 * 1000).unref();
+
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  // Register client as TV
+  // Register client as TV (dedicated local multiplayer room)
   socket.on('register-tv', () => {
+    detachSocketFromSandbox(socket);
+    const localRoom = roomManager.getLocalRoom();
     socket.join('tv');
-    socket.emit('state-update', getMaskedState(null));
+    socket.data.roomId = LOCAL_ROOM_ID;
+    socket.emit('state-update', getMaskedState(localRoom, null));
     console.log(`TV registered: ${socket.id}`);
   });
 
-  // Register client as Sandbox (also refresh session socketId if player is in current game)
+  // Re-attach client to its own private sandbox room (never another player's room)
   socket.on('register-sandbox', (payload) => {
-    socket.join('sandbox');
     const pid = payload && typeof payload === 'object' ? payload.playerId : null;
+    const rawRoomId = payload && typeof payload === 'object' ? payload.roomId : null;
+    const resolvedRoomId = roomManager.resolveSandboxRoomId(rawRoomId, pid);
+    const room = resolvedRoomId ? roomManager.getRoom(resolvedRoomId) : null;
+
+    if (!room || room.kind !== 'sandbox' || room.game.status === 'lobby') {
+      socket.emit('sandbox-session-missing', { roomId: rawRoomId || null });
+      return;
+    }
+
+    // Verify ownership for PvE rooms so a client can never attach to a mismatched playerId
+    if (room.mode === 'pve' && pid && !room.game.players.some((p) => p.id === pid)) {
+      socket.emit('sandbox-session-missing', { roomId: rawRoomId || null });
+      return;
+    }
+
+    attachSocketToSandbox(socket, room.id);
+    roomManager.clearIdlePauseTimer(room);
     if (pid) {
-      const existing = game.players.find(p => p.id === pid);
+      const existing = room.game.players.find((p) => p.id === pid);
       if (existing) {
-        sessions.set(pid, { name: existing.name, socketId: socket.id });
+        room.sessions.set(pid, { name: existing.name, socketId: socket.id });
       }
     }
-    socket.emit('state-update', getMaskedState('sandbox'));
-    console.log(`Sandbox registered: ${socket.id}`);
+    room.lastActivityAt = Date.now();
+    socket.emit('state-update', getMaskedState(room, 'sandbox'));
+    scheduleRoomTimers(room);
+    console.log(`Sandbox re-attached: ${socket.id} -> ${room.id}`);
   });
 
-  // Pause background sandbox timers when returning to title screen
+  // Pause timers ONLY for this client's sandbox room when returning to title screen
   socket.on('leave-sandbox', () => {
-    socket.leave('sandbox');
-    const remainingSandbox = io.sockets.adapter.rooms.get('sandbox');
-    const remainingTv = io.sockets.adapter.rooms.get('tv');
-    if ((!remainingSandbox || remainingSandbox.size === 0) && (!remainingTv || remainingTv.size === 0)) {
-      clearTurnTimers();
+    const prevSandboxRoomId = socket.data.sandboxRoomId;
+    if (prevSandboxRoomId) {
+      roomManager.markLeftToSetup(roomManager.getRoom(prevSandboxRoomId));
+    }
+    detachSocketFromSandbox(socket);
+    if (socket.data.roomId && socket.data.roomId !== LOCAL_ROOM_ID) {
+      socket.data.roomId = null;
     }
   });
 
-  // Player joins or reconnects
+  // Player joins or reconnects in local TV + Mobile room
   socket.on('join-game', ({ playerId, name, isAi }) => {
     if (!playerId || !name) return;
 
-    let existingPlayer = game.players.find(p => p.id === playerId);
+    detachSocketFromSandbox(socket);
+    const localRoom = roomManager.getLocalRoom();
+    const game = localRoom.game;
+    socket.data.roomId = LOCAL_ROOM_ID;
+
+    const existingPlayer = game.players.find((p) => p.id === playerId);
 
     if (existingPlayer) {
-      sessions.set(playerId, { name, socketId: socket.id });
+      localRoom.sessions.set(playerId, { name, socketId: socket.id });
       socket.join(`player-${playerId}`);
       console.log(`Player reconnected: ${name} (${playerId})`);
       game.log(`${name} reconnected.`);
     } else {
       if (game.status !== 'lobby') {
         socket.emit('error-message', '이미 진행 중인 게임입니다.');
-        socket.emit('state-update', getMaskedState(playerId));
+        socket.emit('state-update', getMaskedState(localRoom, playerId));
         return;
       }
       if (game.players.length >= 4) {
@@ -269,10 +345,10 @@ io.on('connection', (socket) => {
 
       const success = game.addPlayer(playerId, name);
       if (success) {
-        const added = game.players.find(p => p.id === playerId);
+        const added = game.players.find((p) => p.id === playerId);
         if (added) added.isAi = !!isAi;
 
-        sessions.set(playerId, { name, socketId: socket.id });
+        localRoom.sessions.set(playerId, { name, socketId: socket.id });
         socket.join(`player-${playerId}`);
         console.log(`Player joined: ${name} (${playerId}) ${isAi ? '[AI]' : ''}`);
       } else {
@@ -281,153 +357,229 @@ io.on('connection', (socket) => {
       }
     }
 
-    broadcastState();
+    broadcastRoomState(localRoom);
   });
 
   socket.on('start-game', () => {
-    clearTurnTimers();
-    const success = game.start();
+    const localRoom = roomManager.getLocalRoom();
+    roomManager.clearTurnTimers(localRoom);
+    const success = localRoom.game.start();
     if (success) {
-      broadcastState();
+      broadcastRoomState(localRoom);
     } else {
       socket.emit('error-message', '게임을 시작하려면 2~4명의 상인이 필요합니다.');
     }
   });
 
+  // User touched board/chips/badge to exit AUTO mode immediately
+  socket.on('cancel-auto-mode', ({ playerId } = {}) => {
+    const room = getActiveRoomForSocket(socket);
+    if (!room || !playerId) return;
+    const { changed } = room.game.disableAutoMode(playerId, { extendClock: true });
+    if (changed) {
+      broadcastRoomState(room);
+    }
+  });
+
   socket.on('take-gems', ({ playerId, colors }) => {
-    const res = game.takeThreeGems(playerId, colors);
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    room.game.disableAutoMode(playerId, { extendClock: false });
+    const res = room.game.takeThreeGems(playerId, colors);
     if (res.success) {
-      broadcastState();
+      broadcastRoomState(room);
     } else {
-      emitActionRejection(socket, playerId, res.reason);
+      emitActionRejection(socket, room, playerId, res.reason);
     }
   });
 
   socket.on('take-two-gems', ({ playerId, color }) => {
-    const res = game.takeTwoGems(playerId, color);
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    room.game.disableAutoMode(playerId, { extendClock: false });
+    const res = room.game.takeTwoGems(playerId, color);
     if (res.success) {
-      broadcastState();
+      broadcastRoomState(room);
     } else {
-      emitActionRejection(socket, playerId, res.reason);
+      emitActionRejection(socket, room, playerId, res.reason);
     }
   });
 
   socket.on('reserve-card', ({ playerId, cardId, tier }) => {
-    const res = game.reserveCard(playerId, cardId, tier);
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    room.game.disableAutoMode(playerId, { extendClock: false });
+    const res = room.game.reserveCard(playerId, cardId, tier);
     if (res.success) {
-      broadcastState();
+      broadcastRoomState(room);
     } else {
-      emitActionRejection(socket, playerId, res.reason);
+      emitActionRejection(socket, room, playerId, res.reason);
     }
   });
 
   socket.on('buy-card', ({ playerId, cardId }) => {
-    const res = game.buyCard(playerId, cardId);
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    room.game.disableAutoMode(playerId, { extendClock: false });
+    const res = room.game.buyCard(playerId, cardId);
     if (res.success) {
-      broadcastState();
+      broadcastRoomState(room);
     } else {
-      emitActionRejection(socket, playerId, res.reason);
+      emitActionRejection(socket, room, playerId, res.reason);
     }
   });
 
   socket.on('focus-card', ({ playerId, cardId }) => {
-    game.setFocus(playerId, cardId);
-    broadcastState();
+    const room = getActiveRoomForSocket(socket);
+    if (!room) return;
+    room.game.setFocus(playerId, cardId);
+    broadcastRoomState(room);
   });
 
   socket.on('unfocus-card', ({ playerId }) => {
-    game.clearFocus(playerId);
-    broadcastState();
+    const room = getActiveRoomForSocket(socket);
+    if (!room) return;
+    room.game.clearFocus(playerId);
+    broadcastRoomState(room);
   });
 
   socket.on('return-gems', ({ playerId, gemCounts }) => {
-    const res = game.returnGems(playerId, gemCounts);
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    room.game.disableAutoMode(playerId, { extendClock: false });
+    const res = room.game.returnGems(playerId, gemCounts);
     if (res.success) {
-      broadcastState();
+      broadcastRoomState(room);
     } else {
-      emitActionRejection(socket, playerId, res.reason);
+      emitActionRejection(socket, room, playerId, res.reason);
     }
   });
 
-  socket.on('test-reset-game', () => {
-    clearTurnTimers();
-    game = new SplendorGame();
-    sessions.clear();
-    console.log('Game state completely wiped for testing.');
-    broadcastState();
+  socket.on('test-reset-game', ({ confirmed = false } = {}) => {
+    const room = getActiveRoomForSocket(socket);
+    if (!room) return;
+    const guard = canResetRoom(room, {
+      trigger: 'explicit-user-restart',
+      explicitConfirm: Boolean(confirmed),
+    });
+    if (!guard.allowed) {
+      socket.emit('state-update', getMaskedState(room, room.kind === 'sandbox' ? 'sandbox' : null));
+      return;
+    }
+    roomManager.clearTurnTimers(room);
+    room.game = new SplendorGame();
+    room.sessions.clear();
+    console.log(`Game state reset for room ${room.id}.`);
+    broadcastRoomState(room);
   });
 
-  socket.on('start-sandbox', ({ mode = 'pve', count = 3, playerId: humanId, playerName: humanName }) => {
-    clearTurnTimers();
-    game = new SplendorGame();
-    sessions.clear();
-    socket.join('sandbox');
-
-    const totalPlayers = count === 4 ? 4 : 3;
-    if (mode === 'pve' && humanId) {
-      const cleanName = (humanName || '').trim() || '나 (상인)';
-      game.addPlayer(humanId, cleanName);
-      sessions.set(humanId, { name: cleanName, socketId: socket.id });
-      const aiNames = ['로렌초 (AI)', '베아트리체 (AI)', '코시모 (AI)'];
-      for (let i = 0; i < totalPlayers - 1; i++) {
-        const aiId = `sandbox_ai${i + 1}`;
-        game.addPlayer(aiId, aiNames[i]);
-        const added = game.players.find((p) => p.id === aiId);
-        if (added) added.isAi = true;
+  socket.on(
+    'start-sandbox',
+    ({
+      roomId: rawRoomId,
+      mode = 'pve',
+      count = 3,
+      playerId: humanId,
+      playerName: humanName,
+      trigger = 'new-match-from-lobby',
+      explicitConfirm = false,
+    } = {}) => {
+      const resolvedRoomId = roomManager.resolveSandboxRoomId(rawRoomId, humanId || socket.id);
+      const { room, reset } = roomManager.createOrResetSandboxRoom(resolvedRoomId, {
+        mode,
+        count,
+        playerId: humanId,
+        playerName: humanName,
+        socketId: socket.id,
+        trigger,
+        explicitConfirm: Boolean(explicitConfirm),
+      });
+      attachSocketToSandbox(socket, room.id);
+      if (reset) {
+        broadcastRoomState(room);
+        console.log(`Sandbox match started: ${room.id} (${room.mode}, ${count}p)`);
+      } else {
+        // Active match preserved — resync client without resetting board or chips
+        socket.emit('state-update', getMaskedState(room, 'sandbox'));
+        scheduleRoomTimers(room);
       }
+    }
+  );
+
+  socket.on('restart-game', ({ trigger = 'end-of-game', explicitConfirm = false } = {}) => {
+    const room = getActiveRoomForSocket(socket);
+    if (!room) {
+      socket.emit('sandbox-session-missing', {});
+      return;
+    }
+    const { reset } = roomManager.restartRoom(room, {
+      trigger,
+      explicitConfirm: Boolean(explicitConfirm),
+    });
+    if (reset) {
+      broadcastRoomState(room);
     } else {
-      const aiNames = ['로렌초 (AI)', '베아트리체 (AI)', '코시모 (AI)', '이사벨라 (AI)'];
-      for (let i = 0; i < totalPlayers; i++) {
-        const aiId = `sandbox_ai${i + 1}`;
-        game.addPlayer(aiId, aiNames[i]);
-        const added = game.players.find((p) => p.id === aiId);
-        if (added) added.isAi = true;
-      }
+      emitActionRejection(socket, room, null, '진행 중인 대전을 임의로 초기화할 수 없습니다.');
     }
-
-    game.start();
-    broadcastState();
-  });
-
-  socket.on('restart-game', () => {
-    clearTurnTimers();
-    const playersBackup = [...game.players];
-    game = new SplendorGame();
-    // Add players back in while preserving AI status
-    for (const p of playersBackup) {
-      const addedOk = game.addPlayer(p.id, p.name);
-      if (addedOk) {
-        const added = game.players.find(pl => pl.id === p.id);
-        if (added) added.isAi = !!p.isAi;
-      }
-    }
-    if (playersBackup.length >= 2) {
-      game.start();
-    }
-    game.log('새 게임이 시작되었습니다.');
-    broadcastState();
   });
 
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
 
-    // Find player associated with this socket
-    for (const [playerId, session] of sessions.entries()) {
-      if (session.socketId === socket.id) {
-        sessions.set(playerId, { ...session, socketId: null });
+    const roomId = socket.data.roomId;
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
 
-        if (game.status === 'lobby') {
+    if (room.kind === 'sandbox') {
+      for (const [playerId, session] of room.sessions.entries()) {
+        if (session.socketId === socket.id) {
+          room.sessions.set(playerId, { ...session, socketId: null });
+          break;
+        }
+      }
+      // Pause timers gracefully if no sockets remain after 15s (keeps state intact for quick reconnects)
+      roomManager.clearIdlePauseTimer(room);
+      room.idlePauseTimer = setTimeout(() => {
+        room.idlePauseTimer = null;
+        if (getRoomSocketCount(room.id) === 0) {
+          roomManager.clearTurnTimers(room);
+        }
+      }, 15000);
+      return;
+    }
+
+    // Local TV + Mobile room disconnect handling
+    for (const [playerId, session] of room.sessions.entries()) {
+      if (session.socketId === socket.id) {
+        room.sessions.set(playerId, { ...session, socketId: null });
+
+        if (room.game.status === 'lobby') {
           setTimeout(() => {
-            const currentSession = sessions.get(playerId);
+            const currentSession = room.sessions.get(playerId);
             if (currentSession && !currentSession.socketId) {
-              game.removePlayer(playerId);
-              sessions.delete(playerId);
-              broadcastState();
+              room.game.removePlayer(playerId);
+              room.sessions.delete(playerId);
+              broadcastRoomState(room);
             }
           }, 10000);
         } else {
-          game.log(`${session.name} disconnected.`);
-          broadcastState();
+          room.game.log(`${session.name} disconnected.`);
+          broadcastRoomState(room);
         }
         break;
       }
@@ -441,7 +593,12 @@ async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        cors: true,
+        allowedHosts: true,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

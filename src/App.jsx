@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Volume2,
   VolumeX,
   Music,
+  SlidersHorizontal,
   ScrollText,
   RotateCcw,
   Home,
@@ -37,29 +38,41 @@ import {
   getPlayerPortrait,
 } from './utils/gemMeta';
 import {
+  initAudioUnlock,
   setSoundTheme,
   setMasterVolume,
+  setBgmEnabled,
+  setBgmVolume,
   playCardSelect,
   playChipPick,
   playChipCollect,
+  playChipReturn,
   playCardBuy,
   playCardReserve,
   playCardDeal,
-  playTurnBell,
+  playTurnTransition,
   playNobleFanfare,
   playVictoryFanfare,
   playThemePreview,
   playCountdownTick,
 } from './utils/soundFx';
+import { safeStorageGet, safeStorageSet } from './utils/safeStorage';
 import { getSoundTheme, clampVolume } from './utils/soundThemes';
 import { diffGameStates } from './utils/gameEffects';
 import {
   VelvetAmbience,
   TabletopEffectsLayer,
   TurnCountdownSlamOverlay,
+  PortraitTurnBanner,
 } from './components/TabletopEffects';
 import { SoundThemePopover } from './components/SoundThemePopover';
 import { TurnGlowBorder } from './components/TurnGlowBorder';
+import { SetupPortraitCard } from './components/SetupPortraitCard';
+import { SetupRenaissanceBackdrop } from './components/SetupRenaissanceBackdrop';
+import {
+  shouldAcceptStateUpdate,
+  shouldPreserveChipSelection,
+} from './utils/stateGuard';
 
 const socket = io();
 
@@ -114,33 +127,135 @@ function getInitialRoute() {
 }
 
 function getOrCreatePlayerId() {
-  let id = localStorage.getItem('splendor_player_id');
+  let id = safeStorageGet('local', 'splendor_player_id');
   if (!id) {
     id = `p_${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem('splendor_player_id', id);
+    safeStorageSet('local', 'splendor_player_id', id);
   }
   return id;
 }
+
+function getOrCreateSandboxRoomId() {
+  let id = safeStorageGet('session', 'splendor_sandbox_room_id');
+  if (!id) {
+    id = `sb_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+    safeStorageSet('session', 'splendor_sandbox_room_id', id);
+  }
+  return id;
+}
+
+const EMPTY_RETURN_SELECTION = {
+  white: 0,
+  blue: 0,
+  green: 0,
+  red: 0,
+  black: 0,
+  gold: 0,
+};
+
+function recordLocalSfx(ref, kind) {
+  ref.current = { kind, at: Date.now() };
+}
+
+const SETUP_SPEC_SEATS = [
+  {
+    name: '로렌초',
+    role: 'AI 상인',
+    img: PORTRAITS.lorenzo,
+    videoSrc: '/videos/portrait_lorenzo_gesture.mp4',
+    portraitPos: '50% 40%',
+    isHuman: false,
+  },
+  {
+    name: '베아트리체',
+    role: 'AI 상인',
+    img: PORTRAITS.beatrice,
+    videoSrc: '/videos/portrait_beatrice_gesture.mp4?v=3',
+    portraitPos: '50% 22%',
+    isHuman: false,
+  },
+  {
+    name: '코시모',
+    role: 'AI 상인',
+    img: PORTRAITS.cosimo,
+    videoSrc: '/videos/portrait_cosimo_gesture.mp4',
+    portraitPos: '50% 28%',
+    isHuman: false,
+  },
+  {
+    name: '이사벨라',
+    role: 'AI 상인',
+    img: PORTRAITS.duchess,
+    videoSrc: null,
+    portraitPos: '50% 20%',
+    isHuman: false,
+  },
+];
+
+const SETUP_PVE_SEATS = [
+  {
+    name: '베네치아 상인',
+    role: '플레이어',
+    img: PORTRAITS.player,
+    videoSrc: '/videos/portrait_player_gesture.mp4',
+    portraitPos: '50% 24%',
+    isHuman: true,
+  },
+  {
+    name: '로렌초',
+    role: 'AI 상인',
+    img: PORTRAITS.lorenzo,
+    videoSrc: '/videos/portrait_lorenzo_gesture.mp4',
+    portraitPos: '50% 40%',
+    isHuman: false,
+  },
+  {
+    name: '베아트리체',
+    role: 'AI 상인',
+    img: PORTRAITS.beatrice,
+    videoSrc: '/videos/portrait_beatrice_gesture.mp4?v=3',
+    portraitPos: '50% 22%',
+    isHuman: false,
+  },
+  {
+    name: '코시모',
+    role: 'AI 상인',
+    img: PORTRAITS.cosimo,
+    videoSrc: '/videos/portrait_cosimo_gesture.mp4',
+    portraitPos: '50% 28%',
+    isHuman: false,
+  },
+];
 
 export default function App() {
   const initialRoute = getInitialRoute();
   const [viewMode, setViewMode] = useState(initialRoute.viewMode);
   const [setupTab, setSetupTab] = useState('pve'); // 'pve' | 'spec' | 'local'
   const [setupCount, setSetupCount] = useState(3); // 3 | 4
+  const [spotlightSeatIdx, setSpotlightSeatIdx] = useState(null);
+  const spotlightRestTimerRef = useRef(null);
+  const lastSpotlightSeatRef = useRef(-1);
   const [playerName, setPlayerName] = useState(
-    () => localStorage.getItem('splendor_player_name') || '베네치아 상인'
+    () => safeStorageGet('local', 'splendor_player_name') || '베네치아 상인'
   );
   const [playerId] = useState(() => getOrCreatePlayerId());
+  const [sandboxRoomId] = useState(() => getOrCreateSandboxRoomId());
   const [sandboxMode, setSandboxMode] = useState('pve'); // 'pve' | 'spec'
 
   const [gameState, setGameState] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
-  const [muted, setMuted] = useState(() => localStorage.getItem('splendor_sound_muted') === '1');
+  const [muted, setMuted] = useState(() => safeStorageGet('local', 'splendor_sound_muted') === '1');
+  const [bgmEnabled, setBgmEnabledState] = useState(
+    () => safeStorageGet('local', 'splendor_bgm_enabled') !== '0'
+  );
+  const [bgmVolume, setBgmVolumeState] = useState(() =>
+    clampVolume(safeStorageGet('local', 'splendor_bgm_volume') ?? 0.48)
+  );
   const [soundTheme, setSoundThemeState] = useState(() =>
-    getSoundTheme(localStorage.getItem('splendor_sound_theme')).id
+    getSoundTheme(safeStorageGet('local', 'splendor_sound_theme')).id
   );
   const [soundVolume, setSoundVolumeState] = useState(() =>
-    clampVolume(localStorage.getItem('splendor_sound_volume') ?? 0.75)
+    clampVolume(safeStorageGet('local', 'splendor_sound_volume') ?? 0.78)
   );
   const [showSoundPanel, setShowSoundPanel] = useState(false);
 
@@ -152,14 +267,7 @@ export default function App() {
   const [inspectedPlayerId, setInspectedPlayerId] = useState(null);
 
   // Excess gem return state
-  const [returnSelection, setReturnSelection] = useState({
-    white: 0,
-    blue: 0,
-    green: 0,
-    red: 0,
-    black: 0,
-    gold: 0,
-  });
+  const [returnSelection, setReturnSelection] = useState(() => ({ ...EMPTY_RETURN_SELECTION }));
 
   // Mobile controller tabs
   const [mobileTab, setMobileTab] = useState('gems');
@@ -173,18 +281,25 @@ export default function App() {
   const [playerWhispers, setPlayerWhispers] = useState({});
   const [scorePulseIds, setScorePulseIds] = useState([]);
   const [fxBanner, setFxBanner] = useState(null);
+  const [turnTransition, setTurnTransition] = useState(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [serverClockOffset, setServerClockOffset] = useState(0);
 
   const autostartRanRef = useRef(false);
+  const skipNextRegisterSandboxRef = useRef(false);
+  const pendingExplicitResetRef = useRef(false);
+  const startingSandboxRef = useRef(false);
+  const autoCancelSentRef = useRef(false);
   const toastTimerRef = useRef(null);
   const prevStateRef = useRef(null);
   const mutedRef = useRef(muted);
   const playerIdRef = useRef(playerId);
+  const sandboxRoomIdRef = useRef(sandboxRoomId);
   const playerNameRef = useRef(playerName);
   const viewModeRef = useRef(viewMode);
   const actionPendingRef = useRef(false);
   const actionPendingTimerRef = useRef(null);
+  const lastLocalSfxRef = useRef({ kind: '', at: 0 });
   const lastTickedSecondRef = useRef(null);
   const fxSeqRef = useRef(0);
   const fxTimersRef = useRef(new Set());
@@ -215,19 +330,54 @@ export default function App() {
   }, [playerName]);
 
   useEffect(() => {
+    initAudioUnlock();
+  }, []);
+
+  useEffect(() => {
     mutedRef.current = muted;
-    localStorage.setItem('splendor_sound_muted', muted ? '1' : '0');
+    safeStorageSet('local', 'splendor_sound_muted', muted ? '1' : '0');
   }, [muted]);
 
   useEffect(() => {
+    setBgmEnabled(bgmEnabled);
+    safeStorageSet('local', 'splendor_bgm_enabled', bgmEnabled ? '1' : '0');
+  }, [bgmEnabled]);
+
+  useEffect(() => {
+    setBgmVolume(bgmVolume);
+    safeStorageSet('local', 'splendor_bgm_volume', String(bgmVolume));
+  }, [bgmVolume]);
+
+  useEffect(() => {
     setSoundTheme(soundTheme);
-    localStorage.setItem('splendor_sound_theme', soundTheme);
+    safeStorageSet('local', 'splendor_sound_theme', soundTheme);
   }, [soundTheme]);
 
   useEffect(() => {
     setMasterVolume(soundVolume);
-    localStorage.setItem('splendor_sound_volume', String(soundVolume));
+    safeStorageSet('local', 'splendor_sound_volume', String(soundVolume));
   }, [soundVolume]);
+
+  const handleToggleBgm = () => {
+    setBgmEnabledState((prev) => {
+      const next = !prev;
+      setBgmEnabled(next);
+      return next;
+    });
+  };
+
+  const handleBgmVolumeChange = (nextVol) => {
+    const clamped = clampVolume(nextVol);
+    setBgmVolumeState(clamped);
+    setBgmVolume(clamped);
+    if (clamped > 0 && !bgmEnabled) {
+      setBgmEnabledState(true);
+      setBgmEnabled(true);
+    } else if (clamped <= 0.001 && bgmEnabled) {
+      setBgmEnabledState(false);
+      setBgmEnabled(false);
+    }
+  };
 
   const handleSelectSoundTheme = (nextThemeId) => {
     const resolved = setSoundTheme(nextThemeId);
@@ -304,18 +454,47 @@ export default function App() {
 
     const onStateUpdate = (state) => {
       clearPendingAction();
+
+      const prev = prevStateRef.current;
+      const expectedRoomId =
+        viewModeRef.current === 'sandbox' ? `sandbox:${sandboxRoomIdRef.current}` : null;
+      const guard = shouldAcceptStateUpdate(prev, state, {
+        expectedRoomId,
+        allowExplicitReset: pendingExplicitResetRef.current,
+      });
+      if (!guard.accept) {
+        return;
+      }
+
+      pendingExplicitResetRef.current = false;
+      startingSandboxRef.current = false;
+
       if (typeof state.serverNow === 'number') {
         setServerClockOffset(state.serverNow - Date.now());
       }
       setClockNow(Date.now());
 
-      const prev = prevStateRef.current;
+      const myNextState = state.players?.find((p) => p.id === playerIdRef.current);
+      if (!myNextState?.autoMode) {
+        autoCancelSentRef.current = false;
+      }
+
       prevStateRef.current = state;
 
-      // Drop stale chip selections if the active turn moved away from us
+      // Preserve active chip selection during our own active turn (e.g. while canceling AUTO mode);
+      // drop stale selections whenever turnSequence advances or turn moves away from us.
       const nextCurrent = state.players?.[state.currentPlayerIndex];
-      if (!nextCurrent || nextCurrent.id !== playerIdRef.current || state.status !== 'playing') {
+      const turnSeqChanged = Boolean(prev && prev.turnSequence !== state.turnSequence);
+      const preserveChipPick = shouldPreserveChipSelection(prev, state, playerIdRef.current);
+
+      if (!preserveChipPick) {
         setSelectedGems((curr) => (curr.length > 0 ? [] : curr));
+      }
+      if (turnSeqChanged || !nextCurrent?.requiresGemReturn || nextCurrent.id !== playerIdRef.current) {
+        setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+      }
+      if (turnSeqChanged && (!nextCurrent || nextCurrent.id !== playerIdRef.current)) {
+        setInspectCard(null);
       }
 
       if (prev && prev.status === 'playing' && state.status !== 'lobby') {
@@ -324,9 +503,15 @@ export default function App() {
         const myId = playerIdRef.current;
 
         // 1. Flying 3D poker chips: Bank -> Player (longer silky parabolic arc + gem starlight)
+        const nowMs = Date.now();
+        const recentLocal = lastLocalSfxRef.current;
         const newChips = [];
         fx.takenGems.forEach(({ playerId: pid, colors }) => {
-          const isAiActor = state.players?.find((p) => p.id === pid)?.isAi;
+          const playedLocally =
+            pid === myId && recentLocal.kind === 'chipCollect' && nowMs - recentLocal.at < 800;
+          if (!playedLocally && colors.length > 0) {
+            playChipCollect(isMuted, colors, pid === myId ? 0.95 : 0.72);
+          }
           colors.forEach((color, idx) => {
             const from = getCenterRect(`[data-gem-bank="${color}"]`);
             const to = resolvePlayerTarget(pid, color, false);
@@ -345,15 +530,20 @@ export default function App() {
               });
               spawnSparkleAt(from.x, from.y, color, delayMs, 0.72);
               spawnSparkleAt(to.x, to.y, color, delayMs + 760, 1.05);
-              if (isAiActor) {
-                scheduleFxCleanup(() => playChipPick(isMuted, color, idx, 0.42), delayMs + 50);
-              }
             }
           });
         });
 
-        // 2. Spent chips flying back: Player -> Bank (when purchasing a card)
+        // 2. Spent / returned chips flying back: Player -> Bank (card purchase payment or >10 return)
         fx.returnedGems.forEach(({ playerId: pid, colors }) => {
+          const playedLocally =
+            pid === myId && recentLocal.kind === 'chipReturn' && nowMs - recentLocal.at < 800;
+          if (!playedLocally && colors.length > 0) {
+            scheduleFxCleanup(
+              () => playChipReturn(isMuted, colors, pid === myId ? 0.92 : 0.7),
+              60
+            );
+          }
           colors.slice(0, 5).forEach((color, idx) => {
             const from = resolvePlayerTarget(pid, color, false);
             const to = getCenterRect(`[data-gem-bank="${color}"]`);
@@ -408,10 +598,13 @@ export default function App() {
             spawnSparkleAt(from.x, from.y, action === 'reserve' ? 'gold' : card.color, 0, 1.0);
             spawnSparkleAt(to.x, to.y, action === 'reserve' ? 'gold' : card.color, 740, 1.25);
 
-            const isAiActor = state.players?.find((p) => p.id === actorId)?.isAi;
-            if (isAiActor) {
-              if (action === 'reserve') playCardReserve(isMuted, 0.52);
-              else playCardBuy(isMuted, 0.52);
+            const expectedKind = action === 'reserve' ? 'cardReserve' : 'cardBuy';
+            const playedLocally =
+              actorId === myId && recentLocal.kind === expectedKind && nowMs - recentLocal.at < 800;
+            if (!playedLocally) {
+              const vol = actorId === myId ? 0.95 : 0.72;
+              if (action === 'reserve') playCardReserve(isMuted, vol);
+              else playCardBuy(isMuted, vol);
             }
           }
         });
@@ -427,7 +620,9 @@ export default function App() {
         // 4. Newly dealt replacement cards perform long smooth 1.18s 3D card flip from deck
         if (fx.dealtCardIds.length > 0) {
           const dealtSet = new Set(fx.dealtCardIds);
-          scheduleFxCleanup(() => playCardDeal(isMuted, 0.72), 180);
+          fx.dealtCardIds.forEach((_, idx) => {
+            scheduleFxCleanup(() => playCardDeal(isMuted, 0.92), 180 + idx * 140);
+          });
           setNewlyDealtIds((curr) => [...new Set([...curr, ...fx.dealtCardIds])]);
           // Soft champagne starlight burst right as the flipped card lands face-up
           removedOrigins.forEach((orig) => {
@@ -469,7 +664,8 @@ export default function App() {
         }
 
         // 6. Noble Visit Royal Fanfare & Banner + Twin Golden Starbursts
-        if (fx.nobleVisits.length > 0) {
+        const hasNobleVisit = fx.nobleVisits.length > 0;
+        if (hasNobleVisit) {
           const visit = fx.nobleVisits[0];
           playNobleFanfare(isMuted);
           const bId = nextId();
@@ -484,23 +680,47 @@ export default function App() {
           scheduleFxCleanup(() => {
             setFxBanner((curr) => (curr?.id === bId ? null : curr));
           }, 2850);
-        } else if (
-          fx.turnChangedTo &&
-          !fx.turnChangedTo.isAi &&
-          fx.turnChangedTo.playerId === myId
-        ) {
-          // 7. Gentle Your Turn calligraphic ribbon & bell + warm starlight flourish
-          playTurnBell(isMuted);
-          const bId = nextId();
-          setFxBanner({
-            id: bId,
-            kind: 'turn',
-            text: '당신의 차례',
+        }
+
+        // 7. Turn-Conclusion Gilded Transition Flourish (signals handoff to the next player)
+        if (fx.turnChangedTo) {
+          const {
+            playerId: toId,
+            playerName: rawToName,
+            isAi: toIsAi,
+            fromPlayerId: fromId,
+            fromPlayerName: rawFromName,
+          } = fx.turnChangedTo;
+          const isSelfTurn = !toIsAi && toId === myId;
+          const cleanFrom = (rawFromName || '').replace(' (AI)', '').trim();
+          const cleanTo = (rawToName || '').replace(' (AI)', '').trim();
+          const tId = nextId();
+
+          setTurnTransition({
+            id: tId,
+            fromId,
+            toId,
+            fromName: cleanFrom,
+            toName: cleanTo,
+            isSelf: isSelfTurn,
+            hideCrest: hasNobleVisit,
           });
-          spawnSparkleAt(window.innerWidth * 0.5, 52, 'gold', 120, 1.05);
+          playTurnTransition(isMuted, { isSelf: isSelfTurn, subtle: hasNobleVisit });
           scheduleFxCleanup(() => {
-            setFxBanner((curr) => (curr?.id === bId ? null : curr));
-          }, 1950);
+            setTurnTransition((curr) => (curr?.id === tId ? null : curr));
+          }, 1460);
+
+          if (isSelfTurn) {
+            const portraitPos = getCenterRect(`[data-dock-merchant="${myId}"] .dock-avatar-frame`);
+            if (portraitPos) {
+              spawnSparkleAt(portraitPos.x + 68, portraitPos.rect.top - 28, 'gold', 120, 0.92);
+            }
+          } else {
+            const nextPlaquePos = getCenterRect(`[data-player-plaque="${toId}"] .opponent-avatar-frame`);
+            if (nextPlaquePos) {
+              spawnSparkleAt(nextPlaquePos.x, nextPlaquePos.y, 'gold', 150, 0.78);
+            }
+          }
         }
 
         // 8. Opponent action whisper bubble
@@ -531,13 +751,32 @@ export default function App() {
       showToast(msg);
     };
 
-    const onTurnTimeout = ({ playerId: timedOutId }) => {
+    const onTurnTimeout = ({ playerId: timedOutId, autoModeEnabled, wasAlreadyAuto }) => {
       clearPendingAction();
       if (timedOutId === playerIdRef.current) {
         setSelectedGems([]);
+        setReturnSelection({ ...EMPTY_RETURN_SELECTION });
         setInspectCard(null);
-        showToast('30초 시간 초과로 자동 선택이 진행되었습니다.');
+        if (wasAlreadyAuto) {
+          showToast('AUTO 모드: 10초 경과로 자동 선택이 진행되었습니다.');
+        } else if (autoModeEnabled) {
+          showToast('30초 시간 초과로 AUTO 모드로 전환되었습니다. (다음 차례 10초 후 자동 선택 · 터치 시 해제)');
+        } else {
+          showToast('30초 시간 초과로 자동 선택이 진행되었습니다.');
+        }
       }
+    };
+
+    const onSandboxSessionMissing = () => {
+      clearPendingAction();
+      if (viewModeRef.current !== 'sandbox' || startingSandboxRef.current) return;
+      setSelectedGems([]);
+      setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+      setInspectCard(null);
+      setGameState(null);
+      prevStateRef.current = null;
+      setViewMode('selector');
+      showToast('대전 세션이 만료되었거나 서버가 새로고침되었습니다. 새 대전을 시작해 주세요.');
     };
 
     const onConnect = () => {
@@ -546,7 +785,10 @@ export default function App() {
       if (mode === 'tv') {
         socket.emit('register-tv');
       } else if (mode === 'sandbox') {
-        socket.emit('register-sandbox', { playerId: playerIdRef.current });
+        socket.emit('register-sandbox', {
+          playerId: playerIdRef.current,
+          roomId: sandboxRoomIdRef.current,
+        });
       } else if (mode === 'player') {
         const prevPlayers = prevStateRef.current?.players || [];
         const wasJoined = prevPlayers.some((p) => p.id === playerIdRef.current);
@@ -560,6 +802,7 @@ export default function App() {
     socket.on('state-update', onStateUpdate);
     socket.on('error-message', onErrorMessage);
     socket.on('turn-timeout', onTurnTimeout);
+    socket.on('sandbox-session-missing', onSandboxSessionMissing);
     socket.on('connect', onConnect);
 
     const timers = fxTimersRef.current;
@@ -567,22 +810,77 @@ export default function App() {
       socket.off('state-update', onStateUpdate);
       socket.off('error-message', onErrorMessage);
       socket.off('turn-timeout', onTurnTimeout);
+      socket.off('sandbox-session-missing', onSandboxSessionMissing);
       socket.off('connect', onConnect);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (actionPendingTimerRef.current) clearTimeout(actionPendingTimerRef.current);
+      if (spotlightRestTimerRef.current) clearTimeout(spotlightRestTimerRef.current);
       timers.forEach((t) => clearTimeout(t));
       timers.clear();
     };
   }, []);
 
-  // Register room when viewMode changes
+  // Title-screen portrait spotlight scheduler: starts static, highlights one card at a time
+  useEffect(() => {
+    if (spotlightRestTimerRef.current) {
+      clearTimeout(spotlightRestTimerRef.current);
+      spotlightRestTimerRef.current = null;
+    }
+    if (viewMode !== 'selector' || setupTab === 'local') {
+      return undefined;
+    }
+
+    const playableCount = setupTab === 'spec' ? Math.min(setupCount, 3) : setupCount;
+    if (spotlightSeatIdx !== null && spotlightSeatIdx < playableCount) {
+      return undefined;
+    }
+
+    const delayMs = lastSpotlightSeatRef.current < 0 ? 1100 : 1400;
+    spotlightRestTimerRef.current = setTimeout(() => {
+      const nextIdx = (lastSpotlightSeatRef.current + 1) % playableCount;
+      lastSpotlightSeatRef.current = nextIdx;
+      setSpotlightSeatIdx(nextIdx);
+    }, delayMs);
+
+    return () => {
+      if (spotlightRestTimerRef.current) {
+        clearTimeout(spotlightRestTimerRef.current);
+        spotlightRestTimerRef.current = null;
+      }
+    };
+  }, [viewMode, setupTab, setupCount, spotlightSeatIdx]);
+
+  const handleSpotlightComplete = useCallback((finishedIdx) => {
+    lastSpotlightSeatRef.current = finishedIdx;
+    setSpotlightSeatIdx((curr) => (curr === finishedIdx ? null : curr));
+  }, []);
+
+  const handleRequestSpotlight = useCallback((targetIdx) => {
+    if (spotlightRestTimerRef.current) {
+      clearTimeout(spotlightRestTimerRef.current);
+      spotlightRestTimerRef.current = null;
+    }
+    lastSpotlightSeatRef.current = targetIdx;
+    setSpotlightSeatIdx((curr) => (curr === targetIdx ? curr : targetIdx));
+  }, []);
+
+  const handleRemoveFourthSeat = useCallback(() => {
+    setSetupCount(3);
+    setSpotlightSeatIdx((curr) => (curr === 3 ? null : curr));
+  }, []);
+
+  // Register room when viewMode changes (skip redundant register when launchSandboxGame/autostart just started a match)
   useEffect(() => {
     if (viewMode === 'tv') {
       socket.emit('register-tv');
     } else if (viewMode === 'sandbox') {
-      socket.emit('register-sandbox', { playerId });
+      if (skipNextRegisterSandboxRef.current || initialRoute.autostart) {
+        skipNextRegisterSandboxRef.current = false;
+        return;
+      }
+      socket.emit('register-sandbox', { playerId, roomId: sandboxRoomId });
     }
-  }, [viewMode, playerId]);
+  }, [viewMode, playerId, sandboxRoomId, initialRoute.autostart]);
 
   // Smooth 150ms ticker for authoritative 30-second turn countdown
   useEffect(() => {
@@ -593,22 +891,30 @@ export default function App() {
     return () => clearInterval(id);
   }, [gameState?.status, gameState?.turnDeadlineAt, gameState?.turnSequence]);
 
-  // Launch sandbox match cleanly (single atomic event)
+  // Launch sandbox match cleanly in this tab's own isolated room
   const launchSandboxGame = (mode = setupTab === 'spec' ? 'spec' : 'pve', count = setupCount) => {
     const cleanName = playerName.trim() || '베네치아 상인';
-    localStorage.setItem('splendor_player_name', cleanName);
+    safeStorageSet('local', 'splendor_player_name', cleanName);
+    clearPendingAction();
+    pendingExplicitResetRef.current = true;
+    startingSandboxRef.current = true;
+    autoCancelSentRef.current = false;
     setSandboxMode(mode);
     setSelectedGems([]);
+    setReturnSelection({ ...EMPTY_RETURN_SELECTION });
     setInspectCard(null);
     setConfirmRestart(false);
     setInspectedPlayerId(null);
     setShowSoundPanel(false);
+    skipNextRegisterSandboxRef.current = true;
     setViewMode('sandbox');
     socket.emit('start-sandbox', {
+      roomId: sandboxRoomId,
       mode,
       count,
       playerId,
       playerName: cleanName,
+      trigger: 'new-match-from-lobby',
     });
   };
 
@@ -616,14 +922,18 @@ export default function App() {
   useEffect(() => {
     if (initialRoute.autostart && !autostartRanRef.current) {
       autostartRanRef.current = true;
+      pendingExplicitResetRef.current = true;
+      startingSandboxRef.current = true;
       socket.emit('start-sandbox', {
+        roomId: sandboxRoomId,
         mode: 'pve',
         count: 3,
         playerId,
         playerName: playerName.trim() || '베네치아 상인',
+        trigger: 'new-match-from-lobby',
       });
     }
-  }, [initialRoute.autostart, playerId, playerName]);
+  }, [initialRoute.autostart, playerId, playerName, sandboxRoomId]);
 
   // Sync document.body.dataset.state for crisp state observability
   useEffect(() => {
@@ -652,6 +962,11 @@ export default function App() {
 
       if (e.key === 'm' || e.key === 'M') {
         setMuted((prev) => !prev);
+        return;
+      }
+
+      if (e.key === 'b' || e.key === 'B') {
+        handleToggleBgm();
         return;
       }
 
@@ -719,20 +1034,52 @@ export default function App() {
     }
   }, [isHumanActiveClock, isTurnUrgent, turnRemainingSec, gameState?.turnSequence]);
 
+  const handleCancelAutoMode = ({ silent = false } = {}) => {
+    if (!humanPlayer || humanPlayer.isAi || !humanPlayer.autoMode) return;
+    if (autoCancelSentRef.current) return;
+    autoCancelSentRef.current = true;
+    socket.emit('cancel-auto-mode', { playerId: humanPlayer.id });
+    if (!silent) {
+      showToast('AUTO 모드가 해제되었습니다. 수동 조작으로 전환합니다.');
+    }
+  };
+
   // Card selection inspection with subtle tier-scaled Renaissance audio cue
   const handleInspectCard = (card, fromReserved = false) => {
     if (!card || card.id === 'secret') return;
-    playCardSelect(muted, card.tier || 1);
+    handleCancelAutoMode();
+    playCardSelect(muted, card.level || card.tier || 1);
     setInspectCard({ card, fromReserved });
   };
 
-  // Gem selection logic (functional update so rapid clicks never race)
+  // Gem selection logic (functional update + clear feedback on rule constraints)
+  const availableDistinctGems = GEM_COLORS.filter((c) => (gameState?.gems?.[c] || 0) > 0).length;
+  const requiredDistinctGems = Math.min(3, availableDistinctGems);
+
   const handleToggleGemPick = (color) => {
-    if (!isHumanTurn || color === 'gold') return;
+    if (!isHumanTurn) return;
+    handleCancelAutoMode();
+    if (color === 'gold') {
+      showToast('황금 조커 토큰은 카드를 킵(예약)할 때 자동으로 1개 획득합니다.');
+      return;
+    }
     const bankCount = gameState?.gems?.[color] || 0;
     if (bankCount <= 0) return;
 
     const alreadyPicked = selectedGems.filter((c) => c === color).length;
+    const uniqueCount = new Set(selectedGems).size;
+
+    // Already picked 3 distinct colors and tapping a 4th color: explain clearly instead of silent no-op
+    if (alreadyPicked === 0 && selectedGems.length >= 3 && uniqueCount === 3) {
+      showToast('이미 3개 색상을 선택했습니다. "보석 가져오기"를 누르거나 선택한 칩을 눌러 해제하세요.');
+      return;
+    }
+
+    // Tapping a single already-selected color when bank < 4: explain why taking 2 of same color is unavailable
+    if (alreadyPicked === 1 && selectedGems.length === 1 && bankCount < 4) {
+      showToast('같은 색 2개는 은행에 4개 이상 남았을 때만 가져올 수 있습니다.');
+    }
+
     const willDeselect =
       alreadyPicked === 2 ||
       (alreadyPicked === 1 && !(selectedGems.length === 1 && bankCount >= 4));
@@ -776,7 +1123,7 @@ export default function App() {
         return [color];
       }
 
-      // Already 3 different colors picked -> ignore (or user can deselect one)
+      // Already 3 different colors picked -> keep current selection
       if (prev.length >= 3) {
         return prev;
       }
@@ -797,15 +1144,15 @@ export default function App() {
     }
     const unique = new Set(selectedGems);
     if (unique.size !== selectedGems.length) return false;
-    // Allow 1-3 distinct colors (game rules allow <3 only if fewer colors remain in bank, server validates)
-    const availableDistinct = GEM_COLORS.filter((c) => (gameState?.gems?.[c] || 0) > 0).length;
-    if (selectedGems.length === 3) return true;
-    return selectedGems.length === Math.min(3, availableDistinct);
+    if (selectedGems.some((c) => (gameState?.gems?.[c] || 0) <= 0)) return false;
+    return requiredDistinctGems > 0 && selectedGems.length === requiredDistinctGems;
   })();
 
   const handleConfirmGems = () => {
     if (!humanPlayer || !canSubmitGemPick || actionPendingRef.current) return;
+    handleCancelAutoMode({ silent: true });
     beginPendingAction();
+    recordLocalSfx(lastLocalSfxRef, 'chipCollect');
     playChipCollect(muted, selectedGems);
     if (selectedGems.length === 2 && selectedGems[0] === selectedGems[1]) {
       socket.emit('take-two-gems', { playerId: humanPlayer.id, color: selectedGems[0] });
@@ -817,7 +1164,9 @@ export default function App() {
 
   const handleBuyCard = (card) => {
     if (!humanPlayer || !isHumanTurn || actionPendingRef.current) return;
+    handleCancelAutoMode({ silent: true });
     beginPendingAction();
+    recordLocalSfx(lastLocalSfxRef, 'cardBuy');
     playCardBuy(muted);
     socket.emit('buy-card', { playerId: humanPlayer.id, cardId: card.id });
     setInspectCard(null);
@@ -826,11 +1175,13 @@ export default function App() {
 
   const handleReserveCard = (card, tier = null) => {
     if (!humanPlayer || !isHumanTurn || actionPendingRef.current) return;
+    handleCancelAutoMode({ silent: true });
     if ((humanPlayer.reserved?.length || 0) >= 3) {
       showToast('킵 슬롯(최대 3장)이 모두 가득 찼습니다.');
       return;
     }
     beginPendingAction();
+    recordLocalSfx(lastLocalSfxRef, 'cardReserve');
     playCardReserve(muted);
     socket.emit('reserve-card', {
       playerId: humanPlayer.id,
@@ -851,7 +1202,8 @@ export default function App() {
 
   const adjustReturnColor = (color, delta) => {
     if (!humanPlayer) return;
-    playChipPick(muted, color, delta);
+    handleCancelAutoMode();
+    playChipPick(muted, color, delta < 0 ? -1 : 0);
     setReturnSelection((prev) => {
       const current = prev[color] || 0;
       const held = humanPlayer.gems?.[color] || 0;
@@ -864,11 +1216,13 @@ export default function App() {
 
   const handleSubmitGemReturn = () => {
     if (!humanPlayer || selectedReturnTotal !== excessToReturn || actionPendingRef.current) return;
+    handleCancelAutoMode({ silent: true });
     beginPendingAction();
     const returnedColors = Object.entries(returnSelection)
       .filter(([, cnt]) => cnt > 0)
       .map(([c]) => c);
-    playChipCollect(muted, returnedColors, 0.72);
+    recordLocalSfx(lastLocalSfxRef, 'chipReturn');
+    playChipReturn(muted, returnedColors, 0.95);
     socket.emit('return-gems', {
       playerId: humanPlayer.id,
       gemCounts: returnSelection,
@@ -883,43 +1237,51 @@ export default function App() {
     const nobleRuleCount = setupCount === 4 ? 5 : 4;
     const gemRuleCount = setupCount === 4 ? 7 : 5;
 
-    const seatConfigs =
-      setupTab === 'spec'
-        ? [
-            { name: '로렌초', role: 'AI 상인', img: PORTRAITS.lorenzo, isHuman: false },
-            { name: '베아트리체', role: 'AI 상인', img: PORTRAITS.beatrice, isHuman: false },
-            { name: '코시모', role: 'AI 상인', img: PORTRAITS.cosimo, isHuman: false },
-            { name: '이사벨라', role: 'AI 상인', img: PORTRAITS.duchess, isHuman: false },
-          ]
-        : [
-            { name: playerName, role: '플레이어', img: PORTRAITS.player, isHuman: true },
-            { name: '로렌초', role: 'AI 상인', img: PORTRAITS.lorenzo, isHuman: false },
-            { name: '베아트리체', role: 'AI 상인', img: PORTRAITS.beatrice, isHuman: false },
-            { name: '코시모', role: 'AI 상인', img: PORTRAITS.cosimo, isHuman: false },
-          ];
+    const seatConfigs = setupTab === 'spec' ? SETUP_SPEC_SEATS : SETUP_PVE_SEATS;
 
     const activeThemeMeta = getSoundTheme(soundTheme);
 
     return (
       <main className="setup-stage">
+        <SetupRenaissanceBackdrop />
         <VelvetAmbience variant="setup" />
         {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
 
-        <button
-          type="button"
-          className={`setup-sound-corner-btn ${showSoundPanel ? 'is-active' : ''}`}
-          onClick={() => setShowSoundPanel((v) => !v)}
-          aria-label="르네상스 음향 테마 설정"
-          aria-expanded={showSoundPanel}
-        >
-          {muted ? <VolumeX size={16} /> : <Music size={16} />}
-          <span>{muted ? '음소거' : activeThemeMeta.name}</span>
-        </button>
+        <div className="setup-sound-corner-group">
+          <button
+            type="button"
+            className={`setup-sound-corner-btn is-bgm ${bgmEnabled ? 'is-active' : ''}`}
+            onClick={handleToggleBgm}
+            data-bgm-toggle="true"
+            aria-pressed={bgmEnabled}
+            aria-label={bgmEnabled ? '배경음악 끄기' : '배경음악 켜기'}
+            title={bgmEnabled ? '배경음악 끄기 (B)' : '배경음악 켜기 (B)'}
+          >
+            <Music size={15} />
+            <span>{bgmEnabled ? 'BGM ON' : 'BGM OFF'}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`setup-sound-corner-btn ${showSoundPanel ? 'is-active' : ''}`}
+            onClick={() => setShowSoundPanel((v) => !v)}
+            data-sound-settings="true"
+            aria-label="르네상스 음향 테마 및 효과음 설정"
+            aria-expanded={showSoundPanel}
+          >
+            {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            <span>{muted ? '효과음 꺼짐' : activeThemeMeta.name}</span>
+          </button>
+        </div>
 
         {showSoundPanel && (
           <SoundThemePopover
             soundTheme={soundTheme}
             onSelectTheme={handleSelectSoundTheme}
+            bgmEnabled={bgmEnabled}
+            onToggleBgm={handleToggleBgm}
+            bgmVolume={bgmVolume}
+            onBgmVolumeChange={handleBgmVolumeChange}
             muted={muted}
             onToggleMute={() => setMuted((m) => !m)}
             volume={soundVolume}
@@ -1005,73 +1367,29 @@ export default function App() {
             {/* Left 2x2 Ornate Portrait Grid */}
             <div className="setup-portrait-grid">
               {seatConfigs.slice(0, 3).map((seat, idx) => (
-                <div
-                  key={idx}
-                  className={`setup-seat-card ${seat.isHuman ? 'is-human' : ''}`}
-                  style={{ '--card-stagger': `${idx * 0.9}s` }}
-                >
-                  <span className="setup-card-sheen" aria-hidden="true" />
-                  <span className="setup-card-glint glint-a" aria-hidden="true" />
-                  <span className="setup-card-glint glint-b" aria-hidden="true" />
-                  <div className={`setup-seat-portrait-wrap is-living motion-${idx % 4}`}>
-                    <img src={seat.img} alt={seat.name} className="setup-seat-portrait" />
-                    <span className="setup-portrait-candlelight" aria-hidden="true" />
-                    <span className="setup-portrait-ember ember-a" aria-hidden="true" />
-                    <span className="setup-portrait-ember ember-b" aria-hidden="true" />
-                    <span className="setup-seat-role">{seat.role}</span>
-                  </div>
-                  <div className="setup-seat-footer">
-                    {seat.isHuman ? (
-                      <input
-                        type="text"
-                        className="setup-name-input"
-                        value={playerName}
-                        maxLength={14}
-                        onChange={(e) => setPlayerName(e.target.value)}
-                        aria-label="플레이어 상인 이름"
-                        placeholder="상인 이름 입력"
-                      />
-                    ) : (
-                      <>
-                        <span className="setup-seat-name">{seat.name}</span>
-                        <span className="setup-seat-sub">르네상스 길드 AI</span>
-                      </>
-                    )}
-                  </div>
-                </div>
+                <SetupPortraitCard
+                  key={`${setupTab}-seat-${idx}`}
+                  seat={seat}
+                  seatIndex={idx}
+                  isSpotlight={spotlightSeatIdx === idx}
+                  onSpotlightComplete={handleSpotlightComplete}
+                  onRequestSpotlight={handleRequestSpotlight}
+                  playerName={seat.isHuman ? playerName : undefined}
+                  onPlayerNameChange={seat.isHuman ? setPlayerName : undefined}
+                />
               ))}
 
               {/* 4th Seat: Toggleable between + Add Merchant and 4th AI Portrait */}
               {setupCount === 4 ? (
-                <div className="setup-seat-card" style={{ '--card-stagger': '2.7s' }}>
-                  <span className="setup-card-sheen" aria-hidden="true" />
-                  <span className="setup-card-glint glint-a" aria-hidden="true" />
-                  <span className="setup-card-glint glint-b" aria-hidden="true" />
-                  <div className="setup-seat-portrait-wrap is-living motion-3">
-                    <img
-                      src={seatConfigs[3].img}
-                      alt={seatConfigs[3].name}
-                      className="setup-seat-portrait"
-                    />
-                    <span className="setup-portrait-candlelight" aria-hidden="true" />
-                    <span className="setup-portrait-ember ember-a" aria-hidden="true" />
-                    <span className="setup-portrait-ember ember-b" aria-hidden="true" />
-                    <span className="setup-seat-role">{seatConfigs[3].role}</span>
-                    <button
-                      type="button"
-                      className="setup-seat-remove"
-                      onClick={() => setSetupCount(3)}
-                      title="3인 대전으로 변경"
-                      aria-label="4번째 상인 제거"
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-                  <div className="setup-seat-footer">
-                    <span className="setup-seat-name">{seatConfigs[3].name}</span>
-                    <span className="setup-seat-sub">르네상스 길드 AI</span>
-                  </div>
-                </div>
+                <SetupPortraitCard
+                  key={`${setupTab}-seat-3`}
+                  seat={seatConfigs[3]}
+                  seatIndex={3}
+                  isSpotlight={spotlightSeatIdx === 3}
+                  onSpotlightComplete={handleSpotlightComplete}
+                  onRequestSpotlight={handleRequestSpotlight}
+                  onRemoveSeat={handleRemoveFourthSeat}
+                />
               ) : (
                 <button
                   type="button"
@@ -1244,7 +1562,7 @@ export default function App() {
               className="btn-gilded-primary"
               onClick={() => {
                 const clean = playerName.trim() || '베네치아 상인';
-                localStorage.setItem('splendor_player_name', clean);
+                safeStorageSet('local', 'splendor_player_name', clean);
                 socket.emit('join-game', { playerId, name: clean, isAi: false });
               }}
             >
@@ -1267,13 +1585,31 @@ export default function App() {
         {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
         <header className="mobile-panel" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1rem' }}>{joinedMe.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '1rem' }}>
+              <span>{joinedMe.name}</span>
+              {joinedMe.autoMode && (
+                <button
+                  type="button"
+                  className="auto-mode-badge is-sm"
+                  data-auto-mode="true"
+                  onClick={() => handleCancelAutoMode()}
+                  title="AUTO 모드 해제"
+                >
+                  <span className="auto-mode-dot" aria-hidden="true" />
+                  <span>AUTO</span>
+                </button>
+              )}
+            </div>
             <div style={{ fontSize: '0.78rem', color: mobileIsMyTurn ? 'var(--gold-bright)' : 'var(--ink-muted)' }}>
               {gameState?.status === 'lobby'
                 ? 'TV에서 게임 시작 대기 중'
-                : mobileIsMyTurn
-                  ? '당신의 턴입니다'
-                  : `${currentPlayer?.name || ''} 진행 중`}
+                : joinedMe.autoMode
+                  ? mobileIsMyTurn
+                    ? `AUTO 모드 · ${turnRemainingSec ?? 10}초 후 자동 선택 (터치 시 해제)`
+                    : 'AUTO 모드 활성화 (터치 시 해제)'
+                  : mobileIsMyTurn
+                    ? '당신의 턴입니다'
+                    : `${currentPlayer?.name || ''} 진행 중`}
             </div>
           </div>
           <div className="prestige-medal is-sm">{joinedMe.points}</div>
@@ -1405,6 +1741,59 @@ export default function App() {
             onClose={() => setInspectCard(null)}
           />
         )}
+
+        {/* Excess Gem Return Modal (>10 tokens) on Mobile */}
+        {mustReturnGems && joinedMe && (
+          <div className="steam-modal-backdrop" role="dialog" aria-modal="true" aria-label="초과 보석 반납">
+            <div className="steam-modal-card">
+              <div className="modal-header-row">
+                <h2 className="modal-title">보석 10개 초과 반납</h2>
+                <span className="numeric" style={{ color: 'var(--gold-bright)', fontWeight: 700 }}>
+                  {selectedReturnTotal} / {excessToReturn}개 선택
+                </span>
+              </div>
+              <p style={{ fontSize: '0.88rem', color: 'var(--ink-secondary)' }}>
+                보유 보석은 최대 10개까지입니다. 반납할 보석 {excessToReturn}개를 선택하세요.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: '10px' }}>
+                {ALL_GEM_COLORS.map((color) => {
+                  const held = joinedMe.gems?.[color] || 0;
+                  const picked = returnSelection[color] || 0;
+                  if (held === 0) return null;
+                  return (
+                    <div key={color} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                      <GemChip
+                        color={color}
+                        count={held - picked}
+                        selectedCount={picked}
+                        interactive
+                        onClick={() => adjustReturnColor(color, 1)}
+                      />
+                      {picked > 0 && (
+                        <button
+                          type="button"
+                          className="floating-cancel-btn"
+                          style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+                          onClick={() => adjustReturnColor(color, -1)}
+                        >
+                          -1
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="btn-gilded-primary"
+                disabled={selectedReturnTotal !== excessToReturn}
+                onClick={handleSubmitGemReturn}
+              >
+                <Check size={18} /> 선택한 보석 반납하기
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     );
   }
@@ -1436,12 +1825,14 @@ export default function App() {
         sparkles={sparkles}
         scorePops={scorePops}
         banner={fxBanner}
+        turnTransition={turnTransition}
       />
 
       {isHumanActiveClock && isTurnUrgent && (
         <TurnCountdownSlamOverlay
           secondsLeft={turnRemainingSec}
           lifted={selectedGems.length > 0}
+          autoMode={Boolean(humanPlayer?.autoMode)}
         />
       )}
 
@@ -1559,7 +1950,7 @@ export default function App() {
           <span className="floating-gem-hint">
             {selectedGems.length === 2 && selectedGems[0] === selectedGems[1]
               ? '같은 색 2개 채집'
-              : `서로 다른 색 ${selectedGems.length}/3`}
+              : `서로 다른 색 ${selectedGems.length}/${requiredDistinctGems}`}
           </span>
 
           <button
@@ -1626,6 +2017,10 @@ export default function App() {
         <SoundThemePopover
           soundTheme={soundTheme}
           onSelectTheme={handleSelectSoundTheme}
+          bgmEnabled={bgmEnabled}
+          onToggleBgm={handleToggleBgm}
+          bgmVolume={bgmVolume}
+          onBgmVolumeChange={handleBgmVolumeChange}
           muted={muted}
           onToggleMute={() => setMuted((m) => !m)}
           volume={soundVolume}
@@ -1637,9 +2032,10 @@ export default function App() {
 
       {/* BOTTOM HORIZONTAL MERCHANT DOCK */}
       <footer
-        className={`steam-bottom-dock ${dockIsCurrent && gameState.status === 'playing' ? 'is-my-turn' : ''} ${dockIsCurrent && isTurnUrgent ? 'is-urgent' : ''}`}
+        className={`steam-bottom-dock ${dockIsCurrent && gameState.status === 'playing' ? 'is-my-turn' : ''} ${dockIsCurrent && isTurnUrgent ? 'is-urgent' : ''} ${dockMerchant?.autoMode && !dockMerchant?.isAi ? 'is-auto-mode' : ''}`}
         aria-label="내 상인 트레이"
         data-dock-merchant={dockMerchant?.id || ''}
+        data-dock-auto={dockMerchant?.autoMode && !dockMerchant?.isAi ? 'true' : 'false'}
       >
         <TurnGlowBorder
           active={Boolean(dockIsCurrent && gameState.status === 'playing')}
@@ -1651,12 +2047,43 @@ export default function App() {
         {/* Dock Left: Merchant Portrait & Prestige Medal */}
         {dockMerchant ? (
           <div className="dock-merchant-identity">
-            <div className="dock-avatar-frame">
-              <img
-                src={getPlayerPortrait(dockMerchant, 0)}
-                alt={dockMerchant.name}
-                className="dock-avatar-img"
-              />
+            {viewMode === 'sandbox' &&
+              sandboxMode === 'pve' &&
+              gameState.status === 'playing' &&
+              dockIsCurrent &&
+              !dockMerchant.isAi && (
+                <PortraitTurnBanner
+                  key={`your-turn-${gameState.turnSequence ?? 0}`}
+                  turnSequence={gameState.turnSequence}
+                  urgent={Boolean(isTurnUrgent)}
+                />
+              )}
+            <div className="dock-avatar-wrap">
+              <div className="dock-avatar-frame">
+                <img
+                  src={getPlayerPortrait(dockMerchant, 0)}
+                  alt={dockMerchant.name}
+                  className="dock-avatar-img"
+                />
+              </div>
+              {!dockMerchant.isAi && dockMerchant.autoMode && (
+                <button
+                  type="button"
+                  className="auto-mode-badge is-dock-crest"
+                  data-auto-mode="true"
+                  onClick={
+                    dockMerchant.id === humanPlayer?.id
+                      ? () => handleCancelAutoMode()
+                      : undefined
+                  }
+                  disabled={dockMerchant.id !== humanPlayer?.id}
+                  title="AUTO 모드 활성화 (10초 후 자동 선택 · 클릭하거나 보석/카드 선택 시 해제)"
+                  aria-label="AUTO 모드 활성화 중, 클릭하여 자동 모드 해제"
+                >
+                  <span className="auto-mode-dot" aria-hidden="true" />
+                  <span>AUTO</span>
+                </button>
+              )}
             </div>
 
             <div className="dock-merchant-info">
@@ -1675,26 +2102,36 @@ export default function App() {
                     key={isTurnUrgent ? `dock-sec-${turnRemainingSec}` : 'dock-sec'}
                     className={`turn-timer-pill numeric ${isTurnUrgent ? 'is-urgent' : ''}`}
                     data-turn-timer="dock"
-                    title="턴 제한 시간 30초 (초과 시 자동 선택)"
+                    title={
+                      dockMerchant.autoMode && !dockMerchant.isAi
+                        ? 'AUTO 모드: 10초 후 자동 선택 (터치 시 해제)'
+                        : '턴 제한 시간 30초 (초과 시 AUTO 모드 전환)'
+                    }
                   >
                     {turnRemainingSec}s
                   </span>
                 )}
               </div>
-              <span className={`dock-turn-status ${interactiveBoard ? 'is-turn' : ''}`}>
+              <span className={`dock-turn-status ${interactiveBoard ? 'is-turn' : ''} ${!dockMerchant.isAi && dockMerchant.autoMode ? 'is-auto' : ''}`}>
                 {gameState.status === 'finished'
                   ? '대전 종료'
-                  : interactiveBoard
-                    ? isTurnUrgent
-                      ? `${turnRemainingSec}초 후 자동 선택!`
-                      : '당신의 턴 · 보석·카드 선택'
-                    : sandboxMode === 'spec'
-                      ? `AI 관전 중 · ${currentPlayer?.name?.replace(' (AI)', '') || ''} 차례`
-                      : dockIsCurrent
-                        ? mustReturnGems
-                          ? '초과 보석 반납 필요'
-                          : '진행 중'
-                        : `${currentPlayer?.name?.replace(' (AI)', '') || '상대'} 차례`}
+                  : !dockMerchant.isAi && dockMerchant.autoMode
+                    ? interactiveBoard
+                      ? `AUTO 모드 · ${turnRemainingSec ?? 10}초 후 자동 선택 (터치 시 해제)`
+                      : mustReturnGems
+                        ? 'AUTO 모드 · 초과 보석 반납 대기'
+                        : `AUTO 대기 중 · ${currentPlayer?.name?.replace(' (AI)', '') || '상대'} 차례`
+                    : interactiveBoard
+                      ? isTurnUrgent
+                        ? `${turnRemainingSec}초 후 자동 선택!`
+                        : '당신의 턴 · 보석·카드 선택'
+                      : sandboxMode === 'spec'
+                        ? `AI 관전 중 · ${currentPlayer?.name?.replace(' (AI)', '') || ''} 차례`
+                        : dockIsCurrent
+                          ? mustReturnGems
+                            ? '초과 보석 반납 필요'
+                            : '진행 중'
+                          : `${currentPlayer?.name?.replace(' (AI)', '') || '상대'} 차례`}
               </span>
               {dockIsCurrent && gameState.status === 'playing' && turnRemainingSec !== null && (
                 <div className={`turn-timer-track is-dock ${isTurnUrgent ? 'is-urgent' : ''}`} aria-hidden="true">
@@ -1792,8 +2229,22 @@ export default function App() {
         <div className="dock-utils">
           <button
             type="button"
+            className={`dock-icon-btn ${bgmEnabled ? 'is-active' : 'is-bgm-off'}`}
+            onClick={handleToggleBgm}
+            data-bgm-toggle="true"
+            aria-pressed={bgmEnabled}
+            title={bgmEnabled ? '배경음악 끄기 (B)' : '배경음악 켜기 (B)'}
+            aria-label={bgmEnabled ? '배경음악 끄기' : '배경음악 켜기'}
+          >
+            <Music size={18} />
+          </button>
+
+          <button
+            type="button"
             className={`dock-icon-btn ${muted ? '' : 'is-active'}`}
             onClick={() => setMuted((m) => !m)}
+            data-sfx-toggle="true"
+            aria-pressed={!muted}
             title={muted ? '효과음 켜기 (M)' : '효과음 끄기 (M)'}
             aria-label={muted ? '효과음 켜기' : '효과음 끄기'}
           >
@@ -1807,11 +2258,12 @@ export default function App() {
               setShowSoundPanel((v) => !v);
               setShowChronicle(false);
             }}
-            title={`음향 테마 (${getSoundTheme(soundTheme).name})`}
-            aria-label="르네상스 음향 테마 설정"
+            data-sound-settings="true"
+            title={`음향 설정 · 테마 (${getSoundTheme(soundTheme).name})`}
+            aria-label="르네상스 음향 테마 및 음량 설정"
             aria-expanded={showSoundPanel}
           >
-            <Music size={18} />
+            <SlidersHorizontal size={17} />
           </button>
 
           <button
@@ -1834,10 +2286,17 @@ export default function App() {
                 type="button"
                 className="dock-confirm-yes"
                 onClick={() => {
+                  clearPendingAction();
+                  pendingExplicitResetRef.current = true;
+                  autoCancelSentRef.current = false;
                   setConfirmRestart(false);
                   setSelectedGems([]);
+                  setReturnSelection({ ...EMPTY_RETURN_SELECTION });
                   setInspectCard(null);
-                  socket.emit('restart-game');
+                  socket.emit('restart-game', {
+                    trigger: 'explicit-user-restart',
+                    explicitConfirm: true,
+                  });
                 }}
               >
                 확인
@@ -1981,7 +2440,14 @@ export default function App() {
               <button
                 type="button"
                 className="btn-gilded-primary"
-                onClick={() => socket.emit('restart-game')}
+                onClick={() => {
+                  pendingExplicitResetRef.current = true;
+                  autoCancelSentRef.current = false;
+                  socket.emit('restart-game', {
+                    trigger: 'end-of-game',
+                    explicitConfirm: true,
+                  });
+                }}
               >
                 다시 대전하기
               </button>

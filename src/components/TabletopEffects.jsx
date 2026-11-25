@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { FacetedGemSvg, DevelopmentCard } from './SplendorVisuals';
 
 // Harmonious Renaissance Champagne-Gold & Jewel-Tinted Ambient Starlight Field
@@ -141,7 +142,7 @@ const SPARKLE_TONE_VARS = {
   },
 };
 
-export function VelvetAmbience({ variant = 'tabletop' }) {
+export const VelvetAmbience = memo(function VelvetAmbience({ variant = 'tabletop' }) {
   const isSetup = variant === 'setup';
   const items = isSetup ? [...AMBIENT_STARLIGHT, ...SETUP_HERO_STARLIGHT] : AMBIENT_STARLIGHT;
 
@@ -188,28 +189,36 @@ export function VelvetAmbience({ variant = 'tabletop' }) {
         ))}
     </div>
   );
-}
+});
 
 /**
  * Dramatic 10-second slam-stamp countdown overlay for the active human player.
  * Keyed per second so every numeral (10 -> 1) slams in with kinetic weight,
  * shockwave ring, and golden-crimson ember sparks without blocking tabletop clicks.
  */
-export function TurnCountdownSlamOverlay({ secondsLeft, lifted = false }) {
+export function TurnCountdownSlamOverlay({ secondsLeft, lifted = false, autoMode = false }) {
   if (secondsLeft === null || secondsLeft === undefined || secondsLeft > 10 || secondsLeft <= 0) {
     return null;
   }
 
   const isCritical = secondsLeft <= 5;
+  const caption = autoMode
+    ? isCritical
+      ? 'AUTO 곧 자동 선택!'
+      : 'AUTO · 터치 시 해제'
+    : isCritical
+      ? '곧 자동 선택!'
+      : '턴 종료 임박';
 
   return (
     <div
-      className={`fx-countdown-slam-stage ${lifted ? 'is-lifted' : ''} ${isCritical ? 'is-critical' : ''}`}
+      className={`fx-countdown-slam-stage ${lifted ? 'is-lifted' : ''} ${isCritical ? 'is-critical' : ''} ${autoMode ? 'is-auto-mode' : ''}`}
       aria-live="assertive"
-      aria-label={`남은 턴 시간 ${secondsLeft}초`}
+      aria-label={`${autoMode ? 'AUTO 모드 ' : ''}남은 턴 시간 ${secondsLeft}초`}
       data-countdown-slam={secondsLeft}
+      data-countdown-auto={autoMode ? 'true' : 'false'}
     >
-      <div key={secondsLeft} className={`fx-countdown-slam-core ${isCritical ? 'is-critical' : ''}`}>
+      <div key={secondsLeft} className={`fx-countdown-slam-core ${isCritical ? 'is-critical' : ''} ${autoMode ? 'is-auto-mode' : ''}`}>
         <span className="fx-slam-shockwave" aria-hidden="true" />
         <span className="fx-slam-shockwave is-outer" aria-hidden="true" />
         {SLAM_SPARKS.map((sp, idx) => {
@@ -233,10 +242,161 @@ export function TurnCountdownSlamOverlay({ secondsLeft, lifted = false }) {
           );
         })}
         <span className="fx-countdown-slam-num numeric">{secondsLeft}</span>
-        <span className="fx-countdown-slam-caption">
-          {isCritical ? '곧 자동 선택!' : '턴 종료 임박'}
-        </span>
+        <span className="fx-countdown-slam-caption">{caption}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Subtle floating gold-leaf calligraphic 'Your Turn' ribbon anchored directly
+ * above the current player's portrait area on the tabletop.
+ * Keyed by turnSequence so each new turn begins with a graceful upward glide
+ * and gold-leaf gleam before settling into a whisper-soft float.
+ */
+export function PortraitTurnBanner({ turnSequence, urgent = false }) {
+  return (
+    <div
+      key={`your-turn-${turnSequence ?? 0}`}
+      className={`portrait-turn-banner ${urgent ? 'is-urgent' : ''}`}
+      role="status"
+      aria-live="polite"
+      aria-label="당신의 차례 (Your Turn)"
+      data-your-turn-banner="true"
+    >
+      <div className="portrait-turn-banner-inner">
+        <svg
+          className="portrait-turn-filigree is-left"
+          viewBox="0 0 42 14"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M40 7C33 7 30 2.5 23 2.5C18.5 2.5 16 5 16 7C16 9 18.2 10.5 20.5 9.8C22.4 9.2 22.8 7.2 21.4 6.2"
+            stroke="currentColor"
+            strokeWidth="1.25"
+            strokeLinecap="round"
+          />
+          <path
+            d="M12.5 7L2 7"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+            opacity="0.7"
+          />
+          <path d="M10.5 7L13 4.5L15.5 7L13 9.5Z" fill="currentColor" />
+        </svg>
+
+        <span className="portrait-turn-calligraphy" data-text="Your Turn">
+          Your Turn
+        </span>
+
+        <svg
+          className="portrait-turn-filigree is-right"
+          viewBox="0 0 42 14"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2 7C9 7 12 2.5 19 2.5C23.5 2.5 26 5 26 7C26 9 23.8 10.5 21.5 9.8C19.6 9.2 19.2 7.2 20.6 6.2"
+            stroke="currentColor"
+            strokeWidth="1.25"
+            strokeLinecap="round"
+          />
+          <path
+            d="M29.5 7L40 7"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+            opacity="0.7"
+          />
+          <path d="M26.5 7L29 4.5L31.5 7L29 9.5Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Subtle Renaissance screen fade & gilded filigree flourish triggered whenever
+ * a player concludes their turn and passes initiative to the next merchant.
+ * Non-blocking (pointer-events: none) and compositor-only so gameplay stays instant.
+ */
+function TurnTransitionFlourish({ transition }) {
+  if (!transition) return null;
+
+  const isSelf = Boolean(transition.isSelf);
+  const titleText = isSelf ? '당신의 차례' : `${transition.toName}의 차례`;
+  const hasHandoff =
+    Boolean(transition.fromName) &&
+    Boolean(transition.toName) &&
+    transition.fromName !== transition.toName;
+
+  return (
+    <div
+      key={transition.id}
+      className={`fx-turn-transition ${isSelf ? 'is-self' : 'is-opponent'}`}
+      role="status"
+      aria-live="polite"
+      aria-label={hasHandoff ? `${transition.fromName} 턴 종료, ${titleText}` : titleText}
+      data-turn-transition="true"
+      data-from-player={transition.fromId || ''}
+      data-to-player={transition.toId || ''}
+      data-is-self={isSelf ? 'true' : 'false'}
+    >
+      {/* Layer 1: Subtle velvet-gold perimeter fade & sweeping gold-leaf sheen */}
+      <div className="fx-turn-transition-veil" aria-hidden="true" />
+      <div className="fx-turn-transition-sheen" aria-hidden="true" />
+
+      {/* Layer 2: Gilded filigree flourish crest (suppressed during overlapping Noble Visit) */}
+      {!transition.hideCrest && (
+        <div className="fx-turn-transition-crest">
+          <div className="fx-turn-transition-rule is-left" aria-hidden="true" />
+          <svg
+            className="fx-turn-transition-filigree is-left"
+            viewBox="0 0 46 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M44 8C36 8 32.5 2.5 24.5 2.5C19.5 2.5 16.5 5.4 16.5 8C16.5 10.6 19.2 12.2 21.8 11.4C24 10.7 24.4 8.2 22.8 7"
+              stroke="currentColor"
+              strokeWidth="1.35"
+              strokeLinecap="round"
+            />
+            <path d="M12 8L2 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.65" />
+            <path d="M10.5 8L13.5 5L16.5 8L13.5 11Z" fill="currentColor" />
+          </svg>
+
+          <div className="fx-turn-transition-copy">
+            {hasHandoff && (
+              <span className="fx-turn-transition-handoff">
+                <span>{transition.fromName}</span>
+                <span className="fx-turn-transition-arrow" aria-hidden="true">→</span>
+                <span>{transition.toName}</span>
+              </span>
+            )}
+            <span className="fx-turn-transition-title">{titleText}</span>
+          </div>
+
+          <svg
+            className="fx-turn-transition-filigree is-right"
+            viewBox="0 0 46 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M2 8C10 8 13.5 2.5 21.5 2.5C26.5 2.5 29.5 5.4 29.5 8C29.5 10.6 26.8 12.2 24.2 11.4C22 10.7 21.6 8.2 23.2 7"
+              stroke="currentColor"
+              strokeWidth="1.35"
+              strokeLinecap="round"
+            />
+            <path d="M34 8L44 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.65" />
+            <path d="M29.5 8L32.5 5L35.5 8L32.5 11Z" fill="currentColor" />
+          </svg>
+          <div className="fx-turn-transition-rule is-right" aria-hidden="true" />
+        </div>
+      )}
     </div>
   );
 }
@@ -247,14 +407,18 @@ export function TabletopEffectsLayer({
   sparkles,
   scorePops,
   banner,
+  turnTransition = null,
 }) {
   return (
-    <div className="tabletop-fx-layer" aria-hidden="true">
+    <div className="tabletop-fx-layer">
+      {/* 0. Subtle Turn-Conclusion Screen Fade & Gilded Filigree Flourish */}
+      <TurnTransitionFlourish transition={turnTransition} />
+
       {/* 1. Flying 3D Poker Chips with Trailing Magic Starlight Dust */}
       {flyingChips.map((chip) => {
         const toneVars = SPARKLE_TONE_VARS[chip.color] || SPARKLE_TONE_VARS.gold;
         return (
-          <div key={chip.id}>
+          <div key={chip.id} aria-hidden="true">
             {[1, 2].map((trailIdx) => (
               <div
                 key={`${chip.id}_t${trailIdx}`}

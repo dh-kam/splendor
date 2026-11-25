@@ -99,3 +99,31 @@ test('diffGameStates detects card purchase, replacement deal, spent gems, and no
   assert.equal(fx.nobleVisits.length, 1);
   assert.equal(fx.nobleVisits[0].noble.id, 'n1');
 });
+
+test('diffGameStates reports concluding and next player on turn handoff and stays null mid-turn', () => {
+  const prev = makeSnapshot({ turnSequence: 4 });
+  const sameTurnNext = makeSnapshot({
+    turnSequence: 4,
+    currentPlayerIndex: 0,
+    players: [
+      { ...prev.players[0], requiresGemReturn: true },
+      prev.players[1],
+    ],
+  });
+  assert.equal(diffGameStates(prev, sameTurnNext).turnChangedTo, null);
+
+  const handoffNext = makeSnapshot({
+    turnSequence: 5,
+    currentPlayerIndex: 1,
+  });
+  const fx = diffGameStates(prev, handoffNext);
+  assert.deepEqual(fx.turnChangedTo, {
+    playerId: 'ai1',
+    playerName: '로렌초 (AI)',
+    isAi: true,
+    fromPlayerId: 'p1',
+    fromPlayerName: '베네치아 상인',
+    fromIsAi: false,
+    turnSequence: 5,
+  });
+});

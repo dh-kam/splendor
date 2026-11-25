@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   GEM_META,
   GEM_COLORS,
@@ -8,11 +9,13 @@ import {
 } from '../utils/gemMeta';
 import { TurnGlowBorder } from './TurnGlowBorder';
 
-export function SplendorEmblem({ compact = false }) {
+export const SplendorEmblem = memo(function SplendorEmblem({ compact = false }) {
   return (
     <div className={`splendor-emblem ${compact ? 'is-compact' : 'is-hero'}`}>
       <div className="emblem-crest" aria-hidden="true">
         <svg viewBox="0 0 180 56" fill="none" className="emblem-crown-svg">
+          {/* Baked-in soft golden halo (replaces animated CSS filter: drop-shadow) */}
+          <ellipse cx="90" cy="27" rx="76" ry="22" fill="url(#emblemCrownHalo)" />
           {/* Ornate left & right gilded filigree wings */}
           <path
             d="M14 34 Q42 18 68 27 Q54 34 38 35"
@@ -59,6 +62,11 @@ export function SplendorEmblem({ compact = false }) {
           <path d="M90 5 L99 26 L90 48 L81 26 Z" fill="rgba(255,255,255,0.3)" />
           <path d="M90 10 L96 24 L90 28 L84 24 Z" fill="rgba(255,255,255,0.45)" />
           <defs>
+            <radialGradient id="emblemCrownHalo" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(245, 212, 128, 0.34)" />
+              <stop offset="60%" stopColor="rgba(226, 180, 88, 0.1)" />
+              <stop offset="100%" stopColor="rgba(226, 180, 88, 0)" />
+            </radialGradient>
             <linearGradient id="emblemSapphire" x1="72" y1="5" x2="108" y2="48" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#bae6fd" />
               <stop offset="46%" stopColor="#2563eb" />
@@ -74,6 +82,9 @@ export function SplendorEmblem({ compact = false }) {
       </div>
       <div className="emblem-wordmark-wrap">
         {!compact && <span className="emblem-wordmark-aura" aria-hidden="true" />}
+        <div className="emblem-wordmark-shadow" aria-hidden="true">
+          Splendor
+        </div>
         <div className="emblem-wordmark">Splendor</div>
         {!compact && (
           <>
@@ -88,7 +99,7 @@ export function SplendorEmblem({ compact = false }) {
       </div>
     </div>
   );
-}
+});
 
 export function FacetedGemSvg({ color, size = 24, className = '' }) {
   const palettes = {
@@ -613,6 +624,15 @@ export function OpponentPortraitPlaque({
         <div className="opponent-meta">
           <div className="opponent-name-row">
             <span className="opponent-name">{player.name.replace(' (AI)', '')}</span>
+            {!player.isAi && player.autoMode && (
+              <span
+                className="auto-mode-badge is-sm"
+                data-auto-mode="true"
+                title="AUTO 모드 활성화 (10초 후 자동 선택)"
+              >
+                AUTO
+              </span>
+            )}
           </div>
           <div className="opponent-substats">
             <span className="opponent-stat-item">보석 {totalGems}/10</span>
