@@ -12,76 +12,7 @@ import { TurnGlowBorder } from './TurnGlowBorder';
 export const SplendorEmblem = memo(function SplendorEmblem({ compact = false }) {
   return (
     <div className={`splendor-emblem ${compact ? 'is-compact' : 'is-hero'}`}>
-      <div className="emblem-crest" aria-hidden="true">
-        <svg viewBox="0 0 180 56" fill="none" className="emblem-crown-svg">
-          {/* Baked-in soft golden halo (replaces animated CSS filter: drop-shadow) */}
-          <ellipse cx="90" cy="27" rx="76" ry="22" fill="url(#emblemCrownHalo)" />
-          {/* Ornate left & right gilded filigree wings */}
-          <path
-            d="M14 34 Q42 18 68 27 Q54 34 38 35"
-            stroke="url(#emblemGoldStroke)"
-            strokeWidth="2.1"
-            strokeLinecap="round"
-            fill="none"
-          />
-          <path
-            d="M166 34 Q138 18 112 27 Q126 34 142 35"
-            stroke="url(#emblemGoldStroke)"
-            strokeWidth="2.1"
-            strokeLinecap="round"
-            fill="none"
-          />
-          <path
-            d="M44 26 Q56 12 72 20"
-            stroke="#f5de9a"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          <path
-            d="M136 26 Q124 12 108 20"
-            stroke="#f5de9a"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          {/* Flanking jewel pearls */}
-          <circle cx="12" cy="34" r="3" fill="#fff3c4" />
-          <circle cx="168" cy="34" r="3" fill="#fff3c4" />
-          <circle cx="43" cy="25" r="2.2" fill="#f3d68b" />
-          <circle cx="137" cy="25" r="2.2" fill="#f3d68b" />
-          {/* Twin 4-point Renaissance star glints */}
-          <path d="M28 15 L30 20 L35 22 L30 24 L28 29 L26 24 L21 22 L26 20 Z" fill="#fff7d4" />
-          <path d="M152 15 L154 20 L159 22 L154 24 L152 29 L150 24 L145 22 L150 20 Z" fill="#fff7d4" />
-          {/* Center Royal Sapphire Crest */}
-          <path
-            d="M90 5 L108 26 L90 48 L72 26 Z"
-            fill="url(#emblemSapphire)"
-            stroke="#fff0be"
-            strokeWidth="2.2"
-            strokeLinejoin="round"
-          />
-          <path d="M90 5 L99 26 L90 48 L81 26 Z" fill="rgba(255,255,255,0.3)" />
-          <path d="M90 10 L96 24 L90 28 L84 24 Z" fill="rgba(255,255,255,0.45)" />
-          <defs>
-            <radialGradient id="emblemCrownHalo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(245, 212, 128, 0.34)" />
-              <stop offset="60%" stopColor="rgba(226, 180, 88, 0.1)" />
-              <stop offset="100%" stopColor="rgba(226, 180, 88, 0)" />
-            </radialGradient>
-            <linearGradient id="emblemSapphire" x1="72" y1="5" x2="108" y2="48" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#bae6fd" />
-              <stop offset="46%" stopColor="#2563eb" />
-              <stop offset="100%" stopColor="#1e3a8a" />
-            </linearGradient>
-            <linearGradient id="emblemGoldStroke" x1="14" y1="26" x2="166" y2="26" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#c59437" />
-              <stop offset="50%" stopColor="#fff3c7" />
-              <stop offset="100%" stopColor="#c59437" />
-            </linearGradient>
-          </defs>
-        </svg>
-      </div>
       <div className="emblem-wordmark-wrap">
-        {!compact && <span className="emblem-wordmark-aura" aria-hidden="true" />}
         <div className="emblem-wordmark-shadow" aria-hidden="true">
           Splendor
         </div>
@@ -566,13 +497,19 @@ export function NobleTile({ noble, index = 0, compact = false }) {
   const reqs = GEM_COLORS
     .map((c) => [c, noble.cost?.[c] || 0])
     .filter(([, amt]) => amt > 0);
+  // Stagger shimmer wave gracefully down the right-hand noble column across the 3.6s cycle
+  const shimmerDelay = `${(-(index * 0.9 + 0.35)).toFixed(2)}s`;
 
   return (
     <div
       className={`steam-noble-tile ${compact ? 'is-compact' : ''}`}
-      style={{ backgroundImage: `url(${portraitSrc})` }}
+      style={{
+        backgroundImage: `url(${portraitSrc})`,
+        '--noble-shimmer-delay': shimmerDelay,
+      }}
       title={`귀족 타일 (승점 ${noble.points}점)`}
       aria-label={`귀족 타일, 승점 ${noble.points}점`}
+      data-noble-tile={noble.id}
     >
       <div className="steam-noble-strip">
         {reqs.map(([color, amt]) => (
@@ -581,6 +518,13 @@ export function NobleTile({ noble, index = 0, compact = false }) {
           </div>
         ))}
       </div>
+      {!compact && (
+        <>
+          <span className="steam-noble-sheen" aria-hidden="true" />
+          <span className="steam-noble-glint glint-a" aria-hidden="true" />
+          <span className="steam-noble-glint glint-b" aria-hidden="true" />
+        </>
+      )}
       <div className="steam-noble-pv">{noble.points}</div>
     </div>
   );
