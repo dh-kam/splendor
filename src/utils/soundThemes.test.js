@@ -134,3 +134,27 @@ test('builds distinct ascending gilded flourish notes for turnTransition across 
     }
   }
 });
+
+test('builds ascending victoryTallyTick notes and grand victoryTallyComplete chord across all themes', () => {
+  for (const theme of SOUND_THEME_LIST) {
+    const tick1 = buildEventNotes(theme.id, 'victoryTallyTick', { step: 1, total: 16 });
+    const tickMid = buildEventNotes(theme.id, 'victoryTallyTick', { step: 8, total: 16 });
+    const tickEnd = buildEventNotes(theme.id, 'victoryTallyTick', { step: 16, total: 16 });
+
+    assert.ok(tick1.length >= 2 && tickMid.length >= 2 && tickEnd.length >= 2);
+    assert.ok(
+      tick1[0].freq < tickMid[0].freq && tickMid[0].freq < tickEnd[0].freq,
+      `${theme.id} tally tick pitch should climb as points increase`
+    );
+
+    const completeWin = buildEventNotes(theme.id, 'victoryTallyComplete', { isWinner: true });
+    assert.ok(completeWin.length >= 5, `${theme.id} tally complete should schedule lush chord + crown shimmer`);
+
+    for (const note of [...tick1, ...tickMid, ...tickEnd, ...completeWin]) {
+      assert.ok(note.freq > 100 && note.freq < 12000, 'frequency in audible range');
+      assert.ok(note.dur > 0 && note.dur <= 1.6, 'reasonable duration');
+      assert.ok(note.gain > 0 && note.gain <= 0.1, 'subtle non-harsh gain ceiling');
+    }
+  }
+});
+

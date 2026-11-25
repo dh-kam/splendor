@@ -12,16 +12,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: CORS_ORIGIN,
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['websocket', 'polling']
 });
 
 const PORT = process.env.PORT || 3000;
 const roomManager = new RoomManager();
+
+// Kubernetes liveness & readiness probes
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    status: 'alive',
+    uptimeSec: Math.round(process.uptime()),
+  });
+});
+
+app.get('/readyz', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    status: 'ready',
+    activeRooms: roomManager.rooms.size,
+    uptimeSec: Math.round(process.uptime()),
+  });
+});
 
 // Helper to get local IP address
 function getLocalIP() {
@@ -45,6 +67,11 @@ function getMaskedState(room, playerId = null) {
   const game = room.game;
   const state = {
     roomId: room.id,
+    roomKind: room.kind,
+    roomCode: room.roomCode || null,
+    hostId: room.hostId || null,
+    maxPlayers: room.maxPlayers || 4,
+    publicBaseUrl: PUBLIC_BASE_URL || null,
     status: game.status,
     currentPlayerIndex: game.currentPlayerIndex,
     turnSequence: game.turnSequence,
@@ -114,6 +141,13 @@ function attachSocketToSandbox(socket, roomId) {
   socket.data.roomId = roomId;
 }
 
+function detachSocketFromPartyTv(socket) {
+  if (socket.data.partyTvChannel) {
+    socket.leave(socket.data.partyTvChannel);
+    socket.data.partyTvChannel = null;
+  }
+}
+
 function getActiveRoomForSocket(socket) {
   const roomId = socket.data.roomId || LOCAL_ROOM_ID;
   const room = roomManager.getRoom(roomId);
@@ -134,7 +168,8 @@ function emitTimeoutToRoom(room, payload) {
     io.to(room.id).emit('turn-timeout', payload);
     return;
   }
-  io.to('tv').emit('turn-timeout', payload);
+  const tvChannel = room.kind === 'party' ? `party-tv:${room.id}` : 'tv';
+  io.to(tvChannel).emit('turn-timeout', payload);
   for (const [, session] of room.sessions.entries()) {
     if (session.socketId) {
       io.to(session.socketId).emit('turn-timeout', payload);
@@ -235,8 +270,16 @@ function broadcastRoomState(room) {
 
   if (room.kind === 'sandbox') {
     io.to(room.id).emit('state-update', getMaskedState(room, 'sandbox'));
+  } else if (room.kind === 'party') {
+    // Party room: TV/Chromecast receives unprivileged board view; each phone receives its own private reserved cards
+    io.to(`party-tv:${room.id}`).emit('state-update', getMaskedState(room, null));
+    for (const [pId, session] of room.sessions.entries()) {
+      if (session.socketId) {
+        io.to(session.socketId).emit('state-update', getMaskedState(room, pId));
+      }
+    }
   } else {
-    // Local TV + Mobile multiplayer room
+    // Legacy shared local TV + Mobile multiplayer room
     io.to('tv').emit('state-update', getMaskedState(room, null));
     for (const [pId, session] of room.sessions.entries()) {
       if (session.socketId) {
@@ -248,12 +291,18 @@ function broadcastRoomState(room) {
   scheduleRoomTimers(room);
 }
 
-// Periodically prune long-idle abandoned sandbox rooms
+// Periodically prune long-idle abandoned sandbox & party rooms
 setInterval(() => {
   const activeIds = new Set();
   for (const [roomId, room] of roomManager.rooms.entries()) {
     if (room.kind === 'sandbox' && getRoomSocketCount(roomId) > 0) {
       activeIds.add(roomId);
+    } else if (room.kind === 'party') {
+      const hasTv = getRoomSocketCount(`party-tv:${roomId}`) > 0;
+      const hasPlayers = [...room.sessions.values()].some((s) => Boolean(s.socketId));
+      if (hasTv || hasPlayers) {
+        activeIds.add(roomId);
+      }
     }
   }
   roomManager.pruneStaleSandboxRooms(activeIds);
@@ -262,14 +311,156 @@ setInterval(() => {
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  // Register client as TV (dedicated local multiplayer room)
-  socket.on('register-tv', () => {
+  // Register client as TV / Chromecast display (supports both room-code party rooms & legacy local table)
+  socket.on('register-tv', (payload = {}) => {
     detachSocketFromSandbox(socket);
+    detachSocketFromPartyTv(socket);
+    const rawCode = payload && typeof payload === 'object' ? payload.roomCode : null;
+
+    if (rawCode) {
+      const partyRoom = roomManager.getPartyRoomByCode(rawCode);
+      if (!partyRoom) {
+        socket.emit('party-room-missing', { roomCode: rawCode });
+        socket.emit('error-message', `방 코드(${rawCode})를 찾을 수 없습니다.`);
+        return;
+      }
+      const tvChannel = `party-tv:${partyRoom.id}`;
+      socket.leave('tv');
+      socket.join(tvChannel);
+      socket.data.partyTvChannel = tvChannel;
+      socket.data.roomId = partyRoom.id;
+      socket.emit('state-update', getMaskedState(partyRoom, null));
+      console.log(`Party TV/Cast registered: ${socket.id} -> ${partyRoom.id}`);
+      return;
+    }
+
     const localRoom = roomManager.getLocalRoom();
     socket.join('tv');
     socket.data.roomId = LOCAL_ROOM_ID;
     socket.emit('state-update', getMaskedState(localRoom, null));
     console.log(`TV registered: ${socket.id}`);
+  });
+
+  // Create a room-code party room for Host Phone + Chromecast TV + up to 3 QR guests (max 4 total)
+  socket.on('create-party-room', ({ playerId, name, roomCode } = {}, ack) => {
+    if (!playerId) return;
+    detachSocketFromSandbox(socket);
+    detachSocketFromPartyTv(socket);
+
+    const created = roomManager.createPartyRoom({
+      hostPlayerId: playerId,
+      hostName: name,
+      socketId: socket.id,
+      roomCode,
+    });
+    if (!created.ok) {
+      socket.emit('error-message', created.message || '파티 방 생성에 실패했습니다.');
+      if (typeof ack === 'function') ack({ ok: false, message: created.message });
+      return;
+    }
+
+    socket.leave('tv');
+    socket.data.roomId = created.room.id;
+    socket.data.partyPlayerId = playerId;
+    socket.join(`player-${playerId}`);
+    const payload = {
+      ok: true,
+      roomCode: created.roomCode,
+      roomId: created.room.id,
+      maxPlayers: created.room.maxPlayers,
+    };
+    socket.emit('party-room-created', payload);
+    if (typeof ack === 'function') ack(payload);
+    broadcastRoomState(created.room);
+    console.log(`Party room created: ${created.room.id} by ${name || playerId}`);
+  });
+
+  // Join or reconnect to a room-code party room (max 4 players: host + up to 3 guests)
+  socket.on('join-party-room', ({ roomCode, playerId, name } = {}, ack) => {
+    if (!roomCode || !playerId) {
+      socket.emit('error-message', '방 코드와 상인 정보가 필요합니다.');
+      if (typeof ack === 'function') ack({ ok: false, reason: 'invalid-payload' });
+      return;
+    }
+
+    detachSocketFromSandbox(socket);
+    detachSocketFromPartyTv(socket);
+
+    const joined = roomManager.joinPartyRoom(roomCode, {
+      playerId,
+      name,
+      socketId: socket.id,
+      isAi: false,
+    });
+
+    if (!joined.ok) {
+      if (joined.reason === 'room-not-found') {
+        socket.emit('party-room-missing', { roomCode });
+      }
+      socket.emit('error-message', joined.message);
+      if (typeof ack === 'function') ack({ ok: false, reason: joined.reason, message: joined.message });
+      return;
+    }
+
+    socket.leave('tv');
+    socket.data.roomId = joined.room.id;
+    socket.data.partyPlayerId = playerId;
+    socket.join(`player-${playerId}`);
+    if (typeof ack === 'function') {
+      ack({ ok: true, roomCode: joined.room.roomCode, reconnected: joined.reconnected });
+    }
+    broadcastRoomState(joined.room);
+    console.log(`Party player ${joined.reconnected ? 'reconnected' : 'joined'}: ${name || playerId} -> ${joined.room.id}`);
+  });
+
+  // Host adds an AI merchant to fill an open lobby seat (up to max 4 players)
+  socket.on('add-party-ai', ({ roomCode, playerId } = {}) => {
+    const room = roomCode ? roomManager.getPartyRoomByCode(roomCode) : getActiveRoomForSocket(socket);
+    if (!room || room.kind !== 'party') {
+      socket.emit('error-message', '파티 방을 찾을 수 없습니다.');
+      return;
+    }
+    const res = roomManager.addAiPlayerToPartyRoom(room.roomCode, playerId);
+    if (!res.ok) {
+      socket.emit('error-message', res.message);
+      return;
+    }
+    broadcastRoomState(res.room);
+  });
+
+  // Host starts a party match (2..4 players)
+  socket.on('start-party-game', ({ roomCode, playerId } = {}) => {
+    const room = roomCode ? roomManager.getPartyRoomByCode(roomCode) : getActiveRoomForSocket(socket);
+    if (!room || room.kind !== 'party') {
+      socket.emit('error-message', '파티 방을 찾을 수 없습니다.');
+      return;
+    }
+    const res = roomManager.startPartyRoom(room.roomCode, playerId);
+    if (!res.ok) {
+      socket.emit('error-message', res.message);
+      return;
+    }
+    broadcastRoomState(res.room);
+    console.log(`Party game started: ${res.room.id} (${res.room.game.players.length}p)`);
+  });
+
+  socket.on('leave-party-room', ({ playerId } = {}) => {
+    const room = getActiveRoomForSocket(socket);
+    detachSocketFromPartyTv(socket);
+    if (room && room.kind === 'party' && playerId) {
+      const session = room.sessions.get(playerId);
+      if (session && session.socketId === socket.id) {
+        room.sessions.set(playerId, { ...session, socketId: null });
+      }
+      // If a non-host guest leaves before the game begins, free up their seat immediately
+      if (room.game.status === 'lobby' && room.hostId !== playerId) {
+        room.game.removePlayer(playerId);
+        room.sessions.delete(playerId);
+        broadcastRoomState(room);
+      }
+    }
+    socket.data.roomId = null;
+    socket.data.partyPlayerId = null;
   });
 
   // Re-attach client to its own private sandbox room (never another player's room)
@@ -563,10 +754,27 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Local TV + Mobile room disconnect handling
+    // Party & legacy local TV + Mobile room disconnect handling
     for (const [playerId, session] of room.sessions.entries()) {
       if (session.socketId === socket.id) {
         room.sessions.set(playerId, { ...session, socketId: null });
+
+        if (room.kind === 'party') {
+          if (room.game.status === 'lobby' && room.hostId !== playerId) {
+            setTimeout(() => {
+              const currentSession = room.sessions.get(playerId);
+              if (currentSession && !currentSession.socketId && room.game.status === 'lobby') {
+                room.game.removePlayer(playerId);
+                room.sessions.delete(playerId);
+                broadcastRoomState(room);
+              }
+            }, 45000);
+          } else if (room.game.status === 'playing') {
+            room.game.log(`${session.name} disconnected.`);
+            broadcastRoomState(room);
+          }
+          break;
+        }
 
         if (room.game.status === 'lobby') {
           setTimeout(() => {

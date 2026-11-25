@@ -45,6 +45,8 @@ const sfxCounts = {
   turnTransition: 0,
   nobleFanfare: 0,
   victoryFanfare: 0,
+  victoryTallyTick: 0,
+  victoryTallyComplete: 0,
   countdownTick: 0,
 };
 
@@ -722,6 +724,50 @@ export function playVictoryFanfare(muted = false, isWinner = true, themeId = act
   withUnlockedAudio((engine) => {
     const notes = buildEventNotes(themeId, isWinner ? 'victoryWin' : 'victoryFinish');
     scheduleNotesOnEngine(engine, notes, 1, themeId);
+  });
+}
+
+/** Ascending gilded coin-chime tick as each victory point is tallied in the victory ceremony */
+export function playVictoryTallyTick(
+  muted = false,
+  step = 1,
+  total = 15,
+  themeId = activeThemeId
+) {
+  if (muted) return;
+  sfxCounts.victoryTallyTick += 1;
+  syncDebugHook();
+  withUnlockedAudio((engine) => {
+    const progress = (Math.max(1, step) - 1) / Math.max(1, total - 1);
+    scheduleClayChipClack(engine, {
+      volume: 0.36 + progress * 0.18,
+      pitchRatio: 1.0 + progress * 0.45,
+    });
+    const notes = buildEventNotes(themeId, 'victoryTallyTick', { step, total });
+    scheduleNotesOnEngine(engine, notes, 0.88, themeId);
+  });
+}
+
+/** Triumphant gilded crown chord + shimmering gold-leaf sparkle when the point tally finishes */
+export function playVictoryTallyComplete(
+  muted = false,
+  isWinner = true,
+  themeId = activeThemeId
+) {
+  if (muted) return;
+  sfxCounts.victoryTallyComplete += 1;
+  syncDebugHook();
+  withUnlockedAudio((engine) => {
+    scheduleNoiseBurst(engine, {
+      volume: 0.42,
+      durationSec: 0.22,
+      startHz: 2200,
+      endHz: 4600,
+      q: 2.4,
+      delaySec: 0.02,
+    });
+    const notes = buildEventNotes(themeId, 'victoryTallyComplete', { isWinner });
+    scheduleNotesOnEngine(engine, notes, 1.0, themeId);
   });
 }
 

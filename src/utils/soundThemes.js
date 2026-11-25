@@ -408,6 +408,64 @@ export function buildEventNotes(themeId, eventType, options = {}) {
       }));
     }
 
+    case 'victoryTallyTick': {
+      const total = Math.max(1, Number(options.total) || 15);
+      const step = Math.max(1, Math.min(total, Number(options.step) || 1));
+      const progress = (step - 1) / Math.max(1, total - 1);
+      // Major pentatonic Renaissance climb across ~1.35 octaves as points tally upward
+      const scaleSteps = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+      const scaleIdx = Math.min(
+        scaleSteps.length - 1,
+        Math.round(progress * (scaleSteps.length - 1))
+      );
+      const semitones = scaleSteps[scaleIdx];
+      const rootBase = (theme.cardSelectNotes[0] || 392.0) * 1.12;
+      const freq = rootBase * Math.pow(2, semitones / 12);
+      const isFinalRun = total - step <= 2;
+      return [
+        {
+          freq,
+          delay: 0,
+          dur: (isFinalRun ? 0.19 : 0.12) * decay,
+          gain: isFinalRun ? 0.062 : 0.048,
+          wave: theme.cardWave,
+          filterHz: theme.lowpassHz * (1.05 + progress * 0.25),
+        },
+        {
+          freq: freq * 1.4983,
+          delay: 0.012,
+          dur: (isFinalRun ? 0.22 : 0.13) * decay,
+          gain: isFinalRun ? 0.036 : 0.024,
+          wave: theme.harmonicWave,
+          filterHz: theme.lowpassHz * 1.3,
+        },
+      ];
+    }
+
+    case 'victoryTallyComplete': {
+      const isWinner = options.isWinner !== false;
+      const chord = theme.cardBuyChord || [523.25, 659.25, 783.99, 1046.5];
+      const lift = isWinner ? 1.5 : 1.25;
+      const notes = chord.map((freq, idx) => ({
+        freq: freq * lift,
+        delay: idx * 0.036,
+        dur: (0.58 + idx * 0.08) * decay,
+        gain: idx === chord.length - 1 ? 0.078 : 0.056,
+        wave: idx === 0 ? theme.fanfareWave : theme.harmonicWave,
+        filterHz: theme.lowpassHz * 1.35,
+      }));
+      // Luminous crown-octave sparkle
+      notes.push({
+        freq: chord[chord.length - 1] * lift * 1.5,
+        delay: chord.length * 0.036 + 0.02,
+        dur: 0.72 * decay,
+        gain: 0.044,
+        wave: 'sine',
+        filterHz: theme.lowpassHz * 1.5,
+      });
+      return notes;
+    }
+
     case 'countdownTick': {
       const sec = Math.max(1, Math.min(10, Number(options.secondsLeft) || 10));
       const urgency = (11 - sec) / 10; // 0.1 at 10s -> 1.0 at 1s

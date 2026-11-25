@@ -16,8 +16,12 @@ import {
   Smartphone,
   Bookmark,
   ShoppingBag,
-  Trophy,
   Check,
+  QrCode,
+  Cast,
+  Users,
+  Sparkles,
+  Play,
 } from 'lucide-react';
 import {
   SplendorEmblem,
@@ -69,12 +73,29 @@ import { SoundThemePopover } from './components/SoundThemePopover';
 import { TurnGlowBorder } from './components/TurnGlowBorder';
 import { SetupPortraitCard } from './components/SetupPortraitCard';
 import { SetupRenaissanceBackdrop } from './components/SetupRenaissanceBackdrop';
+import { VictoryModal } from './components/VictoryModal';
+import { PartyQrModal } from './components/PartyQrModal';
+import { buildVictoryDemoState } from './utils/victoryTally';
 import {
   shouldAcceptStateUpdate,
   shouldPreserveChipSelection,
 } from './utils/stateGuard';
+import {
+  MAX_PARTY_PLAYERS,
+  normalizeClientRoomCode,
+  resolveServerOrigin,
+  resolvePublicShareOrigin,
+  buildPartyJoinUrl,
+  buildCastReceiverUrl,
+  getAndroidBridge,
+  initCastReceiverListener,
+} from './utils/castBridge';
 
-const socket = io();
+const SERVER_ORIGIN = resolveServerOrigin();
+const socket =
+  SERVER_ORIGIN && typeof window !== 'undefined' && SERVER_ORIGIN !== window.location.origin
+    ? io(SERVER_ORIGIN, { transports: ['websocket', 'polling'] })
+    : io({ transports: ['websocket', 'polling'] });
 
 function getCenterRect(selector) {
   const el = document.querySelector(selector);
@@ -120,10 +141,22 @@ function getInitialRoute() {
   const params = new URLSearchParams(window.location.search);
   const view = params.get('view');
   const autostart = params.get('autostart') === '1';
-  if (view === 'tv') return { viewMode: 'tv', autostart: false };
-  if (view === 'player') return { viewMode: 'player', autostart: false };
-  if (view === 'sandbox' || autostart) return { viewMode: 'sandbox', autostart };
-  return { viewMode: 'selector', autostart: false };
+  const victoryDemo = params.get('victoryDemo') === '1';
+  const roomCode = normalizeClientRoomCode(params.get('room') || '');
+  const isCastReceiver = params.get('cast') === '1';
+  if (victoryDemo) {
+    return { viewMode: 'sandbox', autostart: false, victoryDemo: true, roomCode: '', isCastReceiver: false };
+  }
+  if (view === 'tv' || isCastReceiver) {
+    return { viewMode: 'tv', autostart: false, victoryDemo: false, roomCode, isCastReceiver };
+  }
+  if (view === 'player') {
+    return { viewMode: 'player', autostart: false, victoryDemo: false, roomCode, isCastReceiver: false };
+  }
+  if (view === 'sandbox' || autostart) {
+    return { viewMode: 'sandbox', autostart, victoryDemo: false, roomCode: '', isCastReceiver: false };
+  }
+  return { viewMode: 'selector', autostart: false, victoryDemo: false, roomCode, isCastReceiver: false };
 }
 
 function getOrCreatePlayerId() {
@@ -269,8 +302,13 @@ export default function App() {
   // Excess gem return state
   const [returnSelection, setReturnSelection] = useState(() => ({ ...EMPTY_RETURN_SELECTION }));
 
-  // Mobile controller tabs
+  // Mobile controller & Party/Chromecast state
   const [mobileTab, setMobileTab] = useState('gems');
+  const [partyRoomCode, setPartyRoomCode] = useState(initialRoute.roomCode);
+  const [joinRoomInput, setJoinRoomInput] = useState(initialRoute.roomCode);
+  const [showPartyQrModal, setShowPartyQrModal] = useState(false);
+  const [isCastReceiver] = useState(initialRoute.isCastReceiver);
+  const [castConnected, setCastConnected] = useState(() => getAndroidBridge().isCastConnected());
 
   // Dynamic tabletop FX state
   const [flyingChips, setFlyingChips] = useState([]);
@@ -295,6 +333,7 @@ export default function App() {
   const mutedRef = useRef(muted);
   const playerIdRef = useRef(playerId);
   const sandboxRoomIdRef = useRef(sandboxRoomId);
+  const partyRoomCodeRef = useRef(partyRoomCode);
   const playerNameRef = useRef(playerName);
   const viewModeRef = useRef(viewMode);
   const actionPendingRef = useRef(false);
@@ -326,12 +365,59 @@ export default function App() {
   }, [viewMode]);
 
   useEffect(() => {
+    partyRoomCodeRef.current = partyRoomCode;
+  }, [partyRoomCode]);
+
+  useEffect(() => {
     playerNameRef.current = playerName;
   }, [playerName]);
 
   useEffect(() => {
     initAudioUnlock();
   }, []);
+
+  const androidBridge = getAndroidBridge();
+  const activeRoomCode = gameState?.roomCode || partyRoomCode || '';
+  const shareOrigin = resolvePublicShareOrigin({
+    serverPublicBaseUrl: gameState?.publicBaseUrl,
+    serverOrigin: SERVER_ORIGIN,
+  });
+  const partyJoinUrl = buildPartyJoinUrl(shareOrigin, activeRoomCode);
+  const castTvUrl = buildCastReceiverUrl(shareOrigin, activeRoomCode);
+
+  // Listen for native Android Cast connection updates
+  useEffect(() => {
+    const prevCallback = window.__SPLENDOR_ON_CAST_STATE__;
+    window.__SPLENDOR_ON_CAST_STATE__ = (connected) => {
+      setCastConnected(Boolean(connected));
+      if (typeof prevCallback === 'function') prevCallback(connected);
+    };
+    return () => {
+      if (prevCallback) window.__SPLENDOR_ON_CAST_STATE__ = prevCallback;
+      else delete window.__SPLENDOR_ON_CAST_STATE__;
+    };
+  }, []);
+
+  // Notify Android WebView host whenever the active party room changes so Chromecast can auto-sync
+  useEffect(() => {
+    if (!activeRoomCode) return;
+    getAndroidBridge().notifyRoomChanged(activeRoomCode, castTvUrl);
+  }, [activeRoomCode, castTvUrl]);
+
+  // Google Cast CAF Receiver listener: switches TV view immediately when Android sends ATTACH_ROOM
+  useEffect(() => {
+    if (viewMode !== 'tv' && !isCastReceiver) return undefined;
+    return initCastReceiverListener((incomingCode) => {
+      const normalized = normalizeClientRoomCode(incomingCode);
+      if (!normalized) return;
+      pendingExplicitResetRef.current = true;
+      partyRoomCodeRef.current = normalized;
+      setPartyRoomCode(normalized);
+      setJoinRoomInput(normalized);
+      setViewMode('tv');
+      socket.emit('register-tv', { roomCode: normalized });
+    });
+  }, [viewMode, isCastReceiver]);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -457,7 +543,12 @@ export default function App() {
 
       const prev = prevStateRef.current;
       const expectedRoomId =
-        viewModeRef.current === 'sandbox' ? `sandbox:${sandboxRoomIdRef.current}` : null;
+        viewModeRef.current === 'sandbox'
+          ? `sandbox:${sandboxRoomIdRef.current}`
+          : partyRoomCodeRef.current &&
+              (viewModeRef.current === 'tv' || viewModeRef.current === 'player')
+            ? `party:${partyRoomCodeRef.current}`
+            : null;
       const guard = shouldAcceptStateUpdate(prev, state, {
         expectedRoomId,
         allowExplicitReset: pendingExplicitResetRef.current,
@@ -468,6 +559,12 @@ export default function App() {
 
       pendingExplicitResetRef.current = false;
       startingSandboxRef.current = false;
+
+      if (state.roomCode && state.roomCode !== partyRoomCodeRef.current) {
+        partyRoomCodeRef.current = state.roomCode;
+        setPartyRoomCode(state.roomCode);
+        setJoinRoomInput(state.roomCode);
+      }
 
       if (typeof state.serverNow === 'number') {
         setServerClockOffset(state.serverNow - Date.now());
@@ -769,7 +866,13 @@ export default function App() {
 
     const onSandboxSessionMissing = () => {
       clearPendingAction();
-      if (viewModeRef.current !== 'sandbox' || startingSandboxRef.current) return;
+      if (
+        viewModeRef.current !== 'sandbox' ||
+        startingSandboxRef.current ||
+        prevStateRef.current?.roomId === 'victory_demo'
+      ) {
+        return;
+      }
       setSelectedGems([]);
       setReturnSelection({ ...EMPTY_RETURN_SELECTION });
       setInspectCard(null);
@@ -779,12 +882,32 @@ export default function App() {
       showToast('대전 세션이 만료되었거나 서버가 새로고침되었습니다. 새 대전을 시작해 주세요.');
     };
 
+    const onPartyRoomCreated = ({ roomCode: createdCode }) => {
+      const normalized = normalizeClientRoomCode(createdCode);
+      if (!normalized) return;
+      partyRoomCodeRef.current = normalized;
+      setPartyRoomCode(normalized);
+      setJoinRoomInput(normalized);
+      setShowPartyQrModal(true);
+    };
+
+    const onPartyRoomMissing = ({ roomCode: missingCode } = {}) => {
+      clearPendingAction();
+      showToast(
+        missingCode
+          ? `파티 방(${missingCode})을 찾을 수 없거나 만료되었습니다.`
+          : '파티 방을 찾을 수 없거나 만료되었습니다.'
+      );
+    };
+
     const onConnect = () => {
       clearPendingAction();
       const mode = viewModeRef.current;
+      const activePartyCode = partyRoomCodeRef.current;
       if (mode === 'tv') {
-        socket.emit('register-tv');
+        socket.emit('register-tv', activePartyCode ? { roomCode: activePartyCode } : {});
       } else if (mode === 'sandbox') {
+        if (prevStateRef.current?.roomId === 'victory_demo') return;
         socket.emit('register-sandbox', {
           playerId: playerIdRef.current,
           roomId: sandboxRoomIdRef.current,
@@ -794,7 +917,15 @@ export default function App() {
         const wasJoined = prevPlayers.some((p) => p.id === playerIdRef.current);
         if (wasJoined) {
           const clean = (playerNameRef.current || '').trim() || '베네치아 상인';
-          socket.emit('join-game', { playerId: playerIdRef.current, name: clean, isAi: false });
+          if (activePartyCode) {
+            socket.emit('join-party-room', {
+              roomCode: activePartyCode,
+              playerId: playerIdRef.current,
+              name: clean,
+            });
+          } else {
+            socket.emit('join-game', { playerId: playerIdRef.current, name: clean, isAi: false });
+          }
         }
       }
     };
@@ -803,6 +934,8 @@ export default function App() {
     socket.on('error-message', onErrorMessage);
     socket.on('turn-timeout', onTurnTimeout);
     socket.on('sandbox-session-missing', onSandboxSessionMissing);
+    socket.on('party-room-created', onPartyRoomCreated);
+    socket.on('party-room-missing', onPartyRoomMissing);
     socket.on('connect', onConnect);
 
     const timers = fxTimersRef.current;
@@ -811,6 +944,8 @@ export default function App() {
       socket.off('error-message', onErrorMessage);
       socket.off('turn-timeout', onTurnTimeout);
       socket.off('sandbox-session-missing', onSandboxSessionMissing);
+      socket.off('party-room-created', onPartyRoomCreated);
+      socket.off('party-room-missing', onPartyRoomMissing);
       socket.off('connect', onConnect);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (actionPendingTimerRef.current) clearTimeout(actionPendingTimerRef.current);
@@ -869,18 +1004,18 @@ export default function App() {
     setSpotlightSeatIdx((curr) => (curr === 3 ? null : curr));
   }, []);
 
-  // Register room when viewMode changes (skip redundant register when launchSandboxGame/autostart just started a match)
+  // Register room when viewMode changes (skip redundant register when launchSandboxGame/autostart/victoryDemo runs)
   useEffect(() => {
     if (viewMode === 'tv') {
-      socket.emit('register-tv');
+      socket.emit('register-tv', partyRoomCode ? { roomCode: partyRoomCode } : {});
     } else if (viewMode === 'sandbox') {
-      if (skipNextRegisterSandboxRef.current || initialRoute.autostart) {
+      if (skipNextRegisterSandboxRef.current || initialRoute.autostart || initialRoute.victoryDemo) {
         skipNextRegisterSandboxRef.current = false;
         return;
       }
       socket.emit('register-sandbox', { playerId, roomId: sandboxRoomId });
     }
-  }, [viewMode, playerId, sandboxRoomId, initialRoute.autostart]);
+  }, [viewMode, partyRoomCode, playerId, sandboxRoomId, initialRoute.autostart, initialRoute.victoryDemo]);
 
   // Smooth 150ms ticker for authoritative 30-second turn countdown
   useEffect(() => {
@@ -918,6 +1053,104 @@ export default function App() {
     });
   };
 
+  // Party Room (Host + up to 3 QR Guests = max 4 players) + Chromecast helpers
+  const handleCreatePartyRoom = () => {
+    const cleanName = playerName.trim() || '베네치아 상인';
+    safeStorageSet('local', 'splendor_player_name', cleanName);
+    clearPendingAction();
+    pendingExplicitResetRef.current = true;
+    partyRoomCodeRef.current = '';
+    setPartyRoomCode('');
+    setJoinRoomInput('');
+    setGameState(null);
+    prevStateRef.current = null;
+    setSelectedGems([]);
+    setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+    setInspectCard(null);
+    setViewMode('player');
+    socket.emit('create-party-room', { playerId, name: cleanName });
+  };
+
+  const handleJoinPartyRoom = (rawCode = joinRoomInput) => {
+    const cleanName = playerName.trim() || '베네치아 상인';
+    const normalized = normalizeClientRoomCode(rawCode);
+    safeStorageSet('local', 'splendor_player_name', cleanName);
+    clearPendingAction();
+    pendingExplicitResetRef.current = true;
+    setSelectedGems([]);
+    setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+    setInspectCard(null);
+    if (normalized) {
+      partyRoomCodeRef.current = normalized;
+      setPartyRoomCode(normalized);
+      setJoinRoomInput(normalized);
+      setGameState(null);
+      prevStateRef.current = null;
+      setViewMode('player');
+      socket.emit('join-party-room', { roomCode: normalized, playerId, name: cleanName });
+      return;
+    }
+    partyRoomCodeRef.current = '';
+    setPartyRoomCode('');
+    setViewMode('player');
+    socket.emit('join-game', { playerId, name: cleanName, isAi: false });
+  };
+
+  const handleOpenTvForRoom = (rawCode = joinRoomInput) => {
+    const normalized = normalizeClientRoomCode(rawCode);
+    clearPendingAction();
+    pendingExplicitResetRef.current = true;
+    partyRoomCodeRef.current = normalized;
+    setPartyRoomCode(normalized);
+    setJoinRoomInput(normalized);
+    setGameState(null);
+    prevStateRef.current = null;
+    setViewMode('tv');
+  };
+
+  const handleAddPartyAi = () => {
+    if (!activeRoomCode) return;
+    socket.emit('add-party-ai', { roomCode: activeRoomCode, playerId });
+  };
+
+  const handleStartPartyGame = () => {
+    if (activeRoomCode) {
+      socket.emit('start-party-game', { roomCode: activeRoomCode, playerId });
+    } else {
+      socket.emit('start-game');
+    }
+  };
+
+  const handleCastCurrentRoom = () => {
+    if (!activeRoomCode) {
+      androidBridge.openCastPicker();
+      return;
+    }
+    const sent = androidBridge.castRoom(activeRoomCode, castTvUrl);
+    if (sent) {
+      showToast('Chromecast TV로 현재 파티 보드를 전송했습니다.');
+    } else if (androidBridge.openCastPicker()) {
+      showToast('Chromecast 기기 선택 창을 열었습니다.');
+    }
+  };
+
+  const handleLeaveParty = () => {
+    clearPendingAction();
+    if (activeRoomCode) {
+      socket.emit('leave-party-room', { playerId });
+    }
+    partyRoomCodeRef.current = '';
+    setPartyRoomCode('');
+    setJoinRoomInput('');
+    setShowPartyQrModal(false);
+    setSelectedGems([]);
+    setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+    setInspectCard(null);
+    setGameState(null);
+    prevStateRef.current = null;
+    setViewMode('selector');
+  };
+
   // Support ?autostart=1 directly for verification & instant play
   useEffect(() => {
     if (initialRoute.autostart && !autostartRanRef.current) {
@@ -934,6 +1167,16 @@ export default function App() {
       });
     }
   }, [initialRoute.autostart, playerId, playerName, sandboxRoomId]);
+
+  // Support ?victoryDemo=1 for direct victory ceremony verification
+  useEffect(() => {
+    if (initialRoute.victoryDemo && !autostartRanRef.current) {
+      autostartRanRef.current = true;
+      const demoState = buildVictoryDemoState(playerId, playerName);
+      prevStateRef.current = demoState;
+      setGameState(demoState);
+    }
+  }, [initialRoute.victoryDemo, playerId, playerName]);
 
   // Sync document.body.dataset.state for crisp state observability
   useEffect(() => {
@@ -1327,39 +1570,76 @@ export default function App() {
         {setupTab === 'local' ? (
           <section className="local-multi-grid">
             <div className="local-mode-card">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <Tv size={46} color="#e2bd6d" />
-                <h3>TV 공용 테이블 보드</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="local-card-icon-row">
+                  <QrCode size={42} color="#e2bd6d" />
+                  <span className="local-cap-badge">본인 포함 최대 {MAX_PARTY_PLAYERS}명</span>
+                </div>
+                <h3>호스트 파티 방 만들기 (QR 초대)</h3>
                 <p>
-                  거실 모니터나 TV에 보석 은행, 개발 카드 시장, 귀족 타일을 크게 띄웁니다.
-                  플레이어들은 QR 코드를 스캔해 스마트폰으로 참가합니다.
+                  내 휴대폰이 방장(1번)이 되어 새 파티 방을 열고, 친구 최대 3명을 QR 코드로 초대합니다.
+                  Chromecast에 연결하면 현재 게임 보드가 TV에 실시간 표시됩니다.
                 </p>
+                <input
+                  type="text"
+                  className="setup-name-input"
+                  value={playerName}
+                  maxLength={14}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="방장 상인 이름"
+                  aria-label="방장 상인 이름"
+                />
               </div>
               <button
                 type="button"
                 className="btn-gilded-primary"
-                onClick={() => setViewMode('tv')}
+                data-testid="create-party-btn"
+                onClick={handleCreatePartyRoom}
               >
-                TV 보드 열기
+                <QrCode size={18} />
+                파티 방 만들기 (QR 초대)
               </button>
             </div>
 
             <div className="local-mode-card">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <Smartphone size={46} color="#e2bd6d" />
-                <h3>모바일 핸드헬드 컨트롤러</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="local-card-icon-row">
+                  <Tv size={42} color="#e2bd6d" />
+                  <span className="local-cap-badge">코드 참가 · TV 보드</span>
+                </div>
+                <h3>친구 방 참가 / Chromecast TV 보드</h3>
                 <p>
-                  TV 공용 보드와 실시간으로 연동되는 개인 손패 컨트롤러입니다.
-                  보석 채집, 카드 구매, 비공개 킵을 휴대폰에서 조작합니다.
+                  친구가 공유한 6자리 방 코드를 입력해 모바일로 참가하거나,
+                  거실 TV·모니터에서 해당 방의 공용 게임 보드를 바로 열 수 있습니다.
                 </p>
+                <input
+                  type="text"
+                  className="setup-name-input local-room-input numeric"
+                  value={joinRoomInput}
+                  maxLength={6}
+                  onChange={(e) => setJoinRoomInput(normalizeClientRoomCode(e.target.value))}
+                  placeholder="6자리 방 코드 (예: K8M4QX)"
+                  aria-label="참가할 6자리 방 코드"
+                />
               </div>
-              <button
-                type="button"
-                className="btn-gilded-primary"
-                onClick={() => setViewMode('player')}
-              >
-                모바일 참가하기
-              </button>
+              <div className="local-dual-actions">
+                <button
+                  type="button"
+                  className="btn-gilded-primary"
+                  onClick={() => handleJoinPartyRoom(joinRoomInput)}
+                >
+                  <Smartphone size={17} />
+                  {joinRoomInput ? '코드로 참가' : '모바일 참가'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-gilded-secondary"
+                  onClick={() => handleOpenTvForRoom(joinRoomInput)}
+                >
+                  <Tv size={17} />
+                  TV 보드 열기
+                </button>
+              </div>
             </div>
           </section>
         ) : (
@@ -1462,66 +1742,96 @@ export default function App() {
   }
 
   // =========================================================================
-  // VIEW 2: TV LOBBY (waiting for phones to join)
+  // VIEW 2: TV / CHROMECAST LOBBY (waiting for phones to join)
   // =========================================================================
   if (viewMode === 'tv' && (!gameState || gameState.status === 'lobby')) {
-    const mobileUrl = gameState
-      ? `${window.location.protocol}//${gameState.localIp}:${gameState.port}/?view=player`
-      : `${window.location.origin}/?view=player`;
+    const mobileUrl = partyJoinUrl;
+    const maxSeats = gameState?.maxPlayers || MAX_PARTY_PLAYERS;
 
     return (
-      <main className="tv-lobby-shell">
+      <main className="tv-lobby-shell" data-cast-receiver={isCastReceiver ? 'true' : 'false'}>
         {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
         <SplendorEmblem />
         <div className="tv-lobby-grid">
           <div className="tv-panel" style={{ alignItems: 'center', textAlign: 'center' }}>
-            <h2 className="setup-rule-title" style={{ fontSize: '1.25rem' }}>모바일 참가 QR</h2>
+            <h2 className="setup-rule-title" style={{ fontSize: '1.25rem' }}>
+              {activeRoomCode ? `파티 방 · ${activeRoomCode}` : '모바일 참가 QR'}
+            </h2>
             <div className="qr-frame">
-              <QRCodeSVG value={mobileUrl} size={188} />
+              <QRCodeSVG value={mobileUrl} size={188} level="M" />
             </div>
-            <p style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', wordBreak: 'break-all' }}>
+            <p style={{ fontSize: '0.8rem', color: 'var(--ink-secondary)', margin: 0 }}>
+              스마트폰 카메라로 스캔해 최대 {maxSeats}명까지 함께 참가하세요.
+            </p>
+            <p style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', wordBreak: 'break-all', margin: 0 }}>
               {mobileUrl}
             </p>
           </div>
 
           <div className="tv-panel" style={{ justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <h2 className="setup-rule-title" style={{ fontSize: '1.25rem' }}>
-                참가 대기 상인 ({players.length} / 4)
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                <h2 className="setup-rule-title" style={{ fontSize: '1.25rem', margin: 0 }}>
+                  참가 대기 상인 ({players.length} / {maxSeats})
+                </h2>
+                {isCastReceiver && (
+                  <span className="tv-cast-pill">
+                    <Cast size={13} /> Chromecast TV
+                  </span>
+                )}
+              </div>
               {players.length === 0 ? (
-                <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem' }}>
-                  스마트폰으로 QR 코드를 스캔하거나 새 탭에서 모바일 컨트롤러로 입장하세요.
+                <p style={{ color: 'var(--ink-muted)', fontSize: '0.92rem' }}>
+                  {activeRoomCode
+                    ? `방 코드 ${activeRoomCode}에 연결 중입니다. 호스트 휴대폰에서 친구를 초대해 주세요.`
+                    : '호스트 휴대폰에서 파티 방을 만들거나 QR 코드를 스캔해 입장하세요.'}
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {players.map((p, idx) => (
                     <div key={p.id} className="victory-row">
-                      <span style={{ fontWeight: 700 }}>{idx + 1}. {p.name}</span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--gold-primary)' }}>준비 완료</span>
+                      <span style={{ fontWeight: 700 }}>
+                        {idx + 1}. {p.name}
+                        {gameState?.hostId === p.id ? ' (방장)' : ''}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--gold-primary)' }}>
+                        {p.isAi ? 'AI 상인' : '준비 완료'}
+                      </span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                type="button"
-                className="btn-gilded-primary"
-                disabled={players.length < 2}
-                onClick={() => socket.emit('start-game')}
-              >
-                게임 시작 ({players.length}인)
-              </button>
-              <button
-                type="button"
-                className="btn-gilded-secondary"
-                onClick={() => setViewMode('selector')}
-              >
-                돌아가기
-              </button>
-            </div>
+            {isCastReceiver ? (
+              <p className="tv-cast-wait-note">
+                방장 스마트폰에서 <strong>게임 시작</strong>을 누르면 이 TV 화면이 바로 게임 보드로 전환됩니다.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-gilded-primary"
+                  disabled={players.length < 2 || Boolean(activeRoomCode && gameState?.hostId !== playerId)}
+                  onClick={handleStartPartyGame}
+                >
+                  {activeRoomCode && gameState?.hostId !== playerId
+                    ? `방장 시작 대기 (${players.length}/${maxSeats})`
+                    : `게임 시작 (${players.length}인)`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-gilded-secondary"
+                  onClick={() => {
+                    partyRoomCodeRef.current = '';
+                    setPartyRoomCode('');
+                    setViewMode('selector');
+                  }}
+                >
+                  돌아가기
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -1529,10 +1839,13 @@ export default function App() {
   }
 
   // =========================================================================
-  // VIEW 3: MOBILE HANDHELD CONTROLLER (?view=player)
+  // VIEW 3: MOBILE HANDHELD CONTROLLER (?view=player&room=CODE)
   // =========================================================================
   if (viewMode === 'player') {
     const joinedMe = players.find((p) => p.id === playerId);
+    const isPartyHost = Boolean(gameState?.hostId && gameState.hostId === playerId);
+    const maxSeats = gameState?.maxPlayers || MAX_PARTY_PLAYERS;
+    const remainingSeats = Math.max(0, maxSeats - players.length);
     const mobileIsMyTurn =
       gameState?.status === 'playing' &&
       Boolean(joinedMe) &&
@@ -1540,6 +1853,7 @@ export default function App() {
       !joinedMe.requiresGemReturn;
 
     if (!joinedMe) {
+      const targetCode = normalizeClientRoomCode(joinRoomInput || partyRoomCode);
       return (
         <main className="mobile-shell" style={{ justifyContent: 'center' }}>
           {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
@@ -1547,7 +1861,14 @@ export default function App() {
             <SplendorEmblem compact />
           </div>
           <div className="mobile-panel">
-            <h2 className="modal-title">상인 길드 입장</h2>
+            <h2 className="modal-title">
+              {targetCode ? `파티 방 참가 (${targetCode})` : '상인 길드 입장'}
+            </h2>
+            <p className="mobile-join-hint">
+              {targetCode
+                ? `방장 포함 최대 ${MAX_PARTY_PLAYERS}명까지 함께 플레이할 수 있습니다.`
+                : '방 코드를 입력해 친구 방에 참가하거나 새 파티 방을 만드세요.'}
+            </p>
             <input
               type="text"
               className="setup-name-input"
@@ -1557,21 +1878,37 @@ export default function App() {
               placeholder="상인 이름"
               aria-label="상인 이름"
             />
+            <input
+              type="text"
+              className="setup-name-input local-room-input numeric"
+              value={joinRoomInput}
+              maxLength={6}
+              onChange={(e) => setJoinRoomInput(normalizeClientRoomCode(e.target.value))}
+              placeholder="6자리 방 코드 (QR 스캔 시 자동 입력)"
+              aria-label="6자리 방 코드"
+            />
             <button
               type="button"
               className="btn-gilded-primary"
-              onClick={() => {
-                const clean = playerName.trim() || '베네치아 상인';
-                safeStorageSet('local', 'splendor_player_name', clean);
-                socket.emit('join-game', { playerId, name: clean, isAi: false });
-              }}
+              data-testid="mobile-join-submit"
+              onClick={() => handleJoinPartyRoom(joinRoomInput || partyRoomCode)}
             >
-              테이블 참가하기
+              {targetCode ? '파티 방 참가하기' : '테이블 참가하기'}
             </button>
+            {!targetCode && (
+              <button
+                type="button"
+                className="btn-gilded-secondary"
+                onClick={handleCreatePartyRoom}
+              >
+                <QrCode size={16} />
+                새 파티 방 만들기 (호스트)
+              </button>
+            )}
             <button
               type="button"
               className="btn-gilded-secondary"
-              onClick={() => setViewMode('selector')}
+              onClick={handleLeaveParty}
             >
               메인 화면으로
             </button>
@@ -1583,10 +1920,15 @@ export default function App() {
     return (
       <main className="mobile-shell">
         {toastMsg && <div className="steam-toast" role="alert">{toastMsg}</div>}
-        <header className="mobile-panel" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '1rem' }}>
+        <header className="mobile-panel mobile-header-bar">
+          <div className="mobile-header-left">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700, fontSize: '0.98rem', flexWrap: 'wrap' }}>
               <span>{joinedMe.name}</span>
+              {activeRoomCode && (
+                <span className="mobile-room-chip numeric" data-testid="mobile-room-code">
+                  {activeRoomCode}
+                </span>
+              )}
               {joinedMe.autoMode && (
                 <button
                   type="button"
@@ -1602,18 +1944,136 @@ export default function App() {
             </div>
             <div style={{ fontSize: '0.78rem', color: mobileIsMyTurn ? 'var(--gold-bright)' : 'var(--ink-muted)' }}>
               {gameState?.status === 'lobby'
-                ? 'TV에서 게임 시작 대기 중'
-                : joinedMe.autoMode
-                  ? mobileIsMyTurn
-                    ? `AUTO 모드 · ${turnRemainingSec ?? 10}초 후 자동 선택 (터치 시 해제)`
-                    : 'AUTO 모드 활성화 (터치 시 해제)'
-                  : mobileIsMyTurn
-                    ? '당신의 턴입니다'
-                    : `${currentPlayer?.name || ''} 진행 중`}
+                ? `파티 대기실 · ${players.length}/${maxSeats}명`
+                : gameState?.status === 'finished'
+                  ? '대전 종료'
+                  : joinedMe.autoMode
+                    ? mobileIsMyTurn
+                      ? `AUTO 모드 · ${turnRemainingSec ?? 10}초 후 자동 선택 (터치 시 해제)`
+                      : 'AUTO 모드 활성화 (터치 시 해제)'
+                    : mobileIsMyTurn
+                      ? '당신의 턴입니다'
+                      : `${currentPlayer?.name || ''} 진행 중`}
             </div>
           </div>
-          <div className="prestige-medal is-sm">{joinedMe.points}</div>
+          <div className="mobile-header-actions">
+            {activeRoomCode && (
+              <button
+                type="button"
+                className="mobile-qr-btn"
+                data-testid="mobile-qr-btn"
+                onClick={() => setShowPartyQrModal(true)}
+                aria-label="친구 초대 QR 코드 표시"
+              >
+                <QrCode size={16} />
+                <span>QR 초대</span>
+              </button>
+            )}
+            {androidBridge.available && (
+              <button
+                type="button"
+                className={`mobile-cast-icon-btn ${castConnected ? 'is-connected' : ''}`}
+                onClick={handleCastCurrentRoom}
+                aria-label="Chromecast TV 연결"
+                title={castConnected ? 'Chromecast 연결됨' : 'Chromecast 연결'}
+              >
+                <Cast size={16} />
+              </button>
+            )}
+            <div className="prestige-medal is-sm">{joinedMe.points}</div>
+          </div>
         </header>
+
+        {gameState?.status === 'lobby' && (
+          <section className="mobile-panel mobile-lobby-panel" aria-label="파티 대기실">
+            <div className="party-roster-head">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <Users size={15} color="#e2bd6d" />
+                참가 상인 ({players.length} / {maxSeats}명)
+              </span>
+              <span className="party-roster-count">
+                {remainingSeats > 0
+                  ? `친구 ${remainingSeats}명 추가 초대 가능`
+                  : '최대 정원 (4명)'}
+              </span>
+            </div>
+
+            <div className="party-roster-list">
+              {Array.from({ length: maxSeats }).map((_, idx) => {
+                const p = players[idx];
+                if (!p) {
+                  return (
+                    <div key={`lobby-empty-${idx}`} className="party-seat-row is-empty">
+                      <span className="party-seat-num numeric">{idx + 1}</span>
+                      <span className="party-seat-empty-text">친구 QR 참가 대기 중...</span>
+                    </div>
+                  );
+                }
+                const seatIsHost = p.id === gameState?.hostId;
+                return (
+                  <div key={p.id} className={`party-seat-row ${seatIsHost ? 'is-host' : ''}`}>
+                    <span className="party-seat-num numeric">{idx + 1}</span>
+                    <span className="party-seat-name">{p.name}</span>
+                    <span className="party-seat-tags">
+                      {seatIsHost && <span className="party-seat-badge is-host">방장</span>}
+                      {p.id === playerId && !seatIsHost && <span className="party-seat-badge">나</span>}
+                      {p.isAi && <span className="party-seat-badge is-ai">AI</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {activeRoomCode && (
+              <button
+                type="button"
+                className="btn-gilded-secondary mobile-show-qr-wide"
+                onClick={() => setShowPartyQrModal(true)}
+              >
+                <QrCode size={17} />
+                QR 코드 표시 · 친구 초대 (최대 3명)
+              </button>
+            )}
+
+            {isPartyHost ? (
+              <div className="mobile-host-actions">
+                {remainingSeats > 0 && (
+                  <button
+                    type="button"
+                    className="btn-gilded-secondary"
+                    onClick={handleAddPartyAi}
+                  >
+                    <Sparkles size={15} />
+                    AI 추가
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-gilded-primary"
+                  data-testid="party-start-btn"
+                  disabled={players.length < 2}
+                  onClick={handleStartPartyGame}
+                >
+                  <Play size={16} />
+                  게임 시작 ({players.length}인)
+                </button>
+              </div>
+            ) : (
+              <p className="mobile-wait-host-note">
+                방장이 게임을 시작하면 모바일 컨트롤러와 TV 보드가 동시에 시작됩니다.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="btn-gilded-secondary"
+              style={{ fontSize: '0.84rem', padding: '9px 14px' }}
+              onClick={handleLeaveParty}
+            >
+              파티 나가기
+            </button>
+          </section>
+        )}
 
         {gameState?.status === 'playing' && (
           <>
@@ -1794,6 +2254,46 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Party Invite QR & Chromecast Modal */}
+        {showPartyQrModal && activeRoomCode && (
+          <PartyQrModal
+            roomCode={activeRoomCode}
+            joinUrl={partyJoinUrl}
+            tvUrl={castTvUrl}
+            players={players}
+            hostId={gameState?.hostId}
+            myId={playerId}
+            gameStatus={gameState?.status || 'lobby'}
+            maxPlayers={maxSeats}
+            hasAndroidBridge={androidBridge.available}
+            castConnected={castConnected}
+            onCastToTv={handleCastCurrentRoom}
+            onAddAi={handleAddPartyAi}
+            onStartGame={handleStartPartyGame}
+            onClose={() => setShowPartyQrModal(false)}
+          />
+        )}
+
+        {/* Mobile Victory Ceremony Overlay */}
+        {gameState?.status === 'finished' && (
+          <VictoryModal
+            key={`mob-${gameState.roomId || 'match'}-${gameState.winner?.id || 'win'}-${gameState.turnSequence || 0}`}
+            winner={gameState.winner}
+            players={players}
+            myId={playerId}
+            muted={muted}
+            onRestart={() => {
+              pendingExplicitResetRef.current = true;
+              autoCancelSentRef.current = false;
+              socket.emit('restart-game', {
+                trigger: 'end-of-game',
+                explicitConfirm: true,
+              });
+            }}
+            onReturnHome={handleLeaveParty}
+          />
+        )}
       </main>
     );
   }
@@ -1817,7 +2317,10 @@ export default function App() {
   const dockIsCurrent = dockMerchant && currentPlayer?.id === dockMerchant.id;
 
   return (
-    <div className="steam-tabletop">
+    <div
+      className={`steam-tabletop ${isCastReceiver ? 'is-cast-receiver' : ''}`}
+      data-cast-receiver={isCastReceiver ? 'true' : 'false'}
+    >
       <VelvetAmbience />
       <TabletopEffectsLayer
         flyingChips={flyingChips}
@@ -1827,6 +2330,13 @@ export default function App() {
         banner={fxBanner}
         turnTransition={turnTransition}
       />
+
+      {viewMode === 'tv' && activeRoomCode && (
+        <div className="tv-room-code-badge" data-testid="tv-room-code-badge">
+          {isCastReceiver && <Cast size={13} aria-hidden="true" />}
+          <span>방 {activeRoomCode}</span>
+        </div>
+      )}
 
       {isHumanActiveClock && isTurnUrgent && (
         <TurnCountdownSlamOverlay
@@ -2279,64 +2789,72 @@ export default function App() {
             <ScrollText size={18} />
           </button>
 
-          {confirmRestart ? (
-            <div className="dock-confirm-inline">
-              <span>재시작?</span>
-              <button
-                type="button"
-                className="dock-confirm-yes"
-                onClick={() => {
-                  clearPendingAction();
-                  pendingExplicitResetRef.current = true;
-                  autoCancelSentRef.current = false;
-                  setConfirmRestart(false);
-                  setSelectedGems([]);
-                  setReturnSelection({ ...EMPTY_RETURN_SELECTION });
-                  setInspectCard(null);
-                  socket.emit('restart-game', {
-                    trigger: 'explicit-user-restart',
-                    explicitConfirm: true,
-                  });
-                }}
-              >
-                확인
-              </button>
-              <button
-                type="button"
-                className="dock-confirm-no"
-                onClick={() => setConfirmRestart(false)}
-              >
-                취소
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="dock-icon-btn"
-              onClick={() => setConfirmRestart(true)}
-              title="새 게임 다시 시작"
-              aria-label="새 게임 다시 시작"
-            >
-              <RotateCcw size={18} />
-            </button>
-          )}
+          {!isCastReceiver && (
+            <>
+              {confirmRestart ? (
+                <div className="dock-confirm-inline">
+                  <span>재시작?</span>
+                  <button
+                    type="button"
+                    className="dock-confirm-yes"
+                    onClick={() => {
+                      clearPendingAction();
+                      pendingExplicitResetRef.current = true;
+                      autoCancelSentRef.current = false;
+                      setConfirmRestart(false);
+                      setSelectedGems([]);
+                      setReturnSelection({ ...EMPTY_RETURN_SELECTION });
+                      setInspectCard(null);
+                      socket.emit('restart-game', {
+                        trigger: 'explicit-user-restart',
+                        explicitConfirm: true,
+                      });
+                    }}
+                  >
+                    확인
+                  </button>
+                  <button
+                    type="button"
+                    className="dock-confirm-no"
+                    onClick={() => setConfirmRestart(false)}
+                  >
+                    취소
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="dock-icon-btn"
+                  onClick={() => setConfirmRestart(true)}
+                  title="새 게임 다시 시작"
+                  aria-label="새 게임 다시 시작"
+                >
+                  <RotateCcw size={18} />
+                </button>
+              )}
 
-          <button
-            type="button"
-            className="dock-icon-btn"
-            onClick={() => {
-              setSelectedGems([]);
-              setInspectCard(null);
-              setShowChronicle(false);
-              setConfirmRestart(false);
-              socket.emit('leave-sandbox');
-              setViewMode('selector');
-            }}
-            title="설정 화면으로 돌아가기"
-            aria-label="설정 화면으로 돌아가기"
-          >
-            <Home size={18} />
-          </button>
+              <button
+                type="button"
+                className="dock-icon-btn"
+                onClick={() => {
+                  setSelectedGems([]);
+                  setInspectCard(null);
+                  setShowChronicle(false);
+                  setConfirmRestart(false);
+                  if (viewMode === 'sandbox') {
+                    socket.emit('leave-sandbox');
+                  }
+                  partyRoomCodeRef.current = '';
+                  setPartyRoomCode('');
+                  setViewMode('selector');
+                }}
+                title="설정 화면으로 돌아가기"
+                aria-label="설정 화면으로 돌아가기"
+              >
+                <Home size={18} />
+              </button>
+            </>
+          )}
         </div>
       </footer>
 
@@ -2406,64 +2924,35 @@ export default function App() {
         </div>
       )}
 
-      {/* VICTORY OVERLAY */}
+      {/* ELABORATE VICTORY CEREMONY OVERLAY */}
       {gameState.status === 'finished' && (
-        <div className="steam-modal-backdrop" role="dialog" aria-modal="true" aria-label="게임 결과">
-          <div className="victory-modal-card">
-            <Trophy size={44} color="#f5d782" />
-            <h2 className="setup-rule-title">
-              {gameState.winner?.name?.replace(' (AI)', '') || '승리자'} 승리!
-            </h2>
-            <p style={{ fontSize: '0.92rem', color: 'var(--ink-secondary)' }}>
-              르네상스 최고의 보석 길드 거장이 탄생했습니다.
-            </p>
-
-            <div className="victory-standings">
-              {[...players]
-                .sort((a, b) => b.points - a.points || a.cardCount - b.cardCount)
-                .map((p, idx) => (
-                  <div
-                    key={p.id}
-                    className={`victory-row ${p.id === gameState.winner?.id ? 'is-winner' : ''}`}
-                  >
-                    <span style={{ fontWeight: 700 }}>
-                      {idx + 1}위 · {p.name.replace(' (AI)', '')}
-                    </span>
-                    <span className="numeric" style={{ color: 'var(--gold-bright)', fontWeight: 800 }}>
-                      {p.points}점 (카드 {p.cardCount}장)
-                    </span>
-                  </div>
-                ))}
-            </div>
-
-            <div className="victory-actions">
-              <button
-                type="button"
-                className="btn-gilded-primary"
-                onClick={() => {
-                  pendingExplicitResetRef.current = true;
-                  autoCancelSentRef.current = false;
-                  socket.emit('restart-game', {
-                    trigger: 'end-of-game',
-                    explicitConfirm: true,
-                  });
-                }}
-              >
-                다시 대전하기
-              </button>
-              <button
-                type="button"
-                className="btn-gilded-secondary"
-                onClick={() => {
-                  socket.emit('leave-sandbox');
-                  setViewMode('selector');
-                }}
-              >
-                처음으로
-              </button>
-            </div>
-          </div>
-        </div>
+        <VictoryModal
+          key={`${gameState.roomId || 'match'}-${gameState.winner?.id || 'win'}-${gameState.turnSequence || 0}`}
+          winner={gameState.winner}
+          players={players}
+          myId={playerId}
+          muted={muted}
+          onRestart={() => {
+            if (gameState.roomId === 'victory_demo') {
+              launchSandboxGame('pve', 3);
+              return;
+            }
+            pendingExplicitResetRef.current = true;
+            autoCancelSentRef.current = false;
+            socket.emit('restart-game', {
+              trigger: 'end-of-game',
+              explicitConfirm: true,
+            });
+          }}
+          onReturnHome={() => {
+            if (gameState.roomId !== 'victory_demo') {
+              socket.emit('leave-sandbox');
+            }
+            prevStateRef.current = null;
+            setGameState(null);
+            setViewMode('selector');
+          }}
+        />
       )}
     </div>
   );

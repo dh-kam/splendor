@@ -203,3 +203,67 @@ test('pruneStaleSandboxRooms removes only idle sandbox rooms and preserves activ
   assert.equal(manager.getRoom(staleId), null);
   assert.ok(manager.getRoom(LOCAL_ROOM_ID));
 });
+
+test('party room creates room code, seats host + up to 3 guests (max 4), and blocks 5th joiner', () => {
+  const manager = new RoomManager();
+  const created = manager.createPartyRoom({
+    hostPlayerId: 'host_1',
+    hostName: '호스트 상인',
+    socketId: 'sock_host',
+  });
+  assert.equal(created.ok, true);
+  assert.match(created.roomCode, /^[A-Z0-9]{6}$/);
+  assert.equal(created.room.hostId, 'host_1');
+  assert.equal(created.room.game.players.length, 1);
+
+  // Up to 3 guests (total 4 players) can join cleanly
+  const g1 = manager.joinPartyRoom(created.roomCode, { playerId: 'g1', name: '친구1', socketId: 's1' });
+  const g2 = manager.joinPartyRoom(created.roomCode.toLowerCase(), { playerId: 'g2', name: '친구2', socketId: 's2' });
+  const g3 = manager.joinPartyRoom(created.roomCode, { playerId: 'g3', name: '친구3', socketId: 's3' });
+  assert.equal(g1.ok, true);
+  assert.equal(g2.ok, true);
+  assert.equal(g3.ok, true);
+  assert.equal(created.room.game.players.length, 4);
+
+  // 5th player is rejected
+  const g4 = manager.joinPartyRoom(created.roomCode, { playerId: 'g4', name: '초과인원', socketId: 's4' });
+  assert.equal(g4.ok, false);
+  assert.equal(g4.reason, 'room-full');
+
+  // Reconnecting an existing member is idempotent and succeeds even when full
+  const reconnect = manager.joinPartyRoom(created.roomCode, { playerId: 'g2', name: '친구2', socketId: 's2_new' });
+  assert.equal(reconnect.ok, true);
+  assert.equal(reconnect.reconnected, true);
+  assert.equal(created.room.game.players.length, 4);
+
+  // Non-host cannot start; host starts cleanly
+  const nonHostStart = manager.startPartyRoom(created.roomCode, 'g1');
+  assert.equal(nonHostStart.ok, false);
+  assert.equal(nonHostStart.reason, 'not-host');
+
+  const hostStart = manager.startPartyRoom(created.roomCode, 'host_1');
+  assert.equal(hostStart.ok, true);
+  assert.equal(created.room.game.status, 'playing');
+
+  // Late joiner after start is rejected
+  const late = manager.joinPartyRoom(created.roomCode, { playerId: 'late', name: '지각생', socketId: 's_late' });
+  assert.equal(late.ok, false);
+  assert.equal(late.reason, 'already-started');
+});
+
+test('party room host can fill empty seats with AI up to max 4 players and concurrent party rooms stay isolated', () => {
+  const manager = new RoomManager();
+  const roomA = manager.createPartyRoom({ hostPlayerId: 'hA', hostName: '호스트A', socketId: 'sA' });
+  const roomB = manager.createPartyRoom({ hostPlayerId: 'hB', hostName: '호스트B', socketId: 'sB' });
+  assert.notEqual(roomA.roomCode, roomB.roomCode);
+
+  const aiAdd = manager.addAiPlayerToPartyRoom(roomA.roomCode, 'hA');
+  assert.equal(aiAdd.ok, true);
+  assert.equal(roomA.room.game.players.length, 2);
+  assert.equal(roomA.room.game.players[1].isAi, true);
+
+  // Room B remains completely unaffected
+  assert.equal(roomB.room.game.players.length, 1);
+  assert.equal(roomB.room.game.players[0].id, 'hB');
+});
+

@@ -1,6 +1,35 @@
 import { SplendorGame } from './game.js';
 
 export const LOCAL_ROOM_ID = 'local-table';
+export const MAX_PARTY_PLAYERS = 4;
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PARTY_AI_NAMES = ['로렌초 (AI)', '베아트리체 (AI)', '코시모 (AI)'];
+
+/**
+ * Normalizes a user- or URL-supplied room code to an unambiguous uppercase string.
+ */
+export function normalizeRoomCode(raw) {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (cleaned.length < 4 || cleaned.length > 10) return null;
+  return cleaned;
+}
+
+/**
+ * Generates a unique 6-character uppercase room code without visually ambiguous glyphs (0/O/1/I).
+ */
+export function generateRoomCode(existingIds = new Set()) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    let code = '';
+    for (let i = 0; i < 6; i += 1) {
+      code += ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)];
+    }
+    if (!existingIds.has(`party:${code}`)) {
+      return code;
+    }
+  }
+  return `SP${Date.now().toString(36).toUpperCase().slice(-4)}`;
+}
 
 /**
  * Explicit reset authorization guard.
@@ -43,9 +72,10 @@ export function canResetRoom(
 
 /**
  * Isolated per-session game room manager.
- * Keeps every solo/sandbox match in its own private room so concurrent tabs,
- * previews, or devices can never reset or hijack another player's game.
- * TV + Mobile local multiplayer shares the dedicated LOCAL_ROOM_ID room.
+ * Supports:
+ *  - 'sandbox': private solo PvE / AI-spec sessions per tab
+ *  - 'party': room-code multiplayer sessions (host + up to 3 guests = max 4 players + TV/Chromecast display)
+ *  - 'local': legacy single shared TV + mobile table room
  */
 export class RoomManager {
   constructor() {
@@ -53,13 +83,16 @@ export class RoomManager {
     this.ensureRoom(LOCAL_ROOM_ID, 'local');
   }
 
-  ensureRoom(roomId, kind = 'sandbox') {
+  ensureRoom(roomId, kind = 'sandbox', meta = {}) {
     let room = this.rooms.get(roomId);
     if (!room) {
       room = {
         id: roomId,
-        kind, // 'local' | 'sandbox'
-        mode: kind === 'local' ? 'local' : 'pve',
+        kind, // 'local' | 'sandbox' | 'party'
+        mode: kind === 'local' ? 'local' : kind === 'party' ? 'party' : 'pve',
+        roomCode: meta.roomCode || null,
+        hostId: meta.hostId || null,
+        maxPlayers: meta.maxPlayers || MAX_PARTY_PLAYERS,
         game: new SplendorGame(),
         sessions: new Map(), // playerId -> { name, socketId }
         aiTurnTimer: null,
@@ -82,6 +115,152 @@ export class RoomManager {
 
   getLocalRoom() {
     return this.ensureRoom(LOCAL_ROOM_ID, 'local');
+  }
+
+  resolvePartyRoomId(rawCode) {
+    const code = normalizeRoomCode(rawCode);
+    return code ? `party:${code}` : null;
+  }
+
+  getPartyRoomByCode(rawCode) {
+    const roomId = this.resolvePartyRoomId(rawCode);
+    if (!roomId) return null;
+    const room = this.getRoom(roomId);
+    return room && room.kind === 'party' ? room : null;
+  }
+
+  /**
+   * Creates a new room-code party room for Android/Web Host + Chromecast TV + up to 3 QR-joined guests.
+   * Automatically seats the host as Player 1 (1 / 4).
+   */
+  createPartyRoom({ hostPlayerId, hostName = '', socketId = null, roomCode = null } = {}) {
+    if (!hostPlayerId) {
+      return { ok: false, reason: 'missing-host', message: '호스트 플레이어 정보가 필요합니다.' };
+    }
+    const cleanCode = normalizeRoomCode(roomCode) || generateRoomCode(new Set(this.rooms.keys()));
+    const roomId = `party:${cleanCode}`;
+    const existing = this.getRoom(roomId);
+    if (existing) {
+      this.clearTurnTimers(existing);
+      this.clearIdlePauseTimer(existing);
+      this.rooms.delete(roomId);
+    }
+
+    const room = this.ensureRoom(roomId, 'party', {
+      roomCode: cleanCode,
+      hostId: hostPlayerId,
+      maxPlayers: MAX_PARTY_PLAYERS,
+    });
+    const cleanName = (hostName || '').trim() || '베네치아 상인';
+    room.game.addPlayer(hostPlayerId, cleanName);
+    room.sessions.set(hostPlayerId, { name: cleanName, socketId });
+    room.lastActivityAt = Date.now();
+    return { ok: true, room, roomCode: cleanCode };
+  }
+
+  /**
+   * Joins or reconnects a player into a room-code party session (max 4 total: host + 3 guests).
+   */
+  joinPartyRoom(rawCode, { playerId, name = '', socketId = null, isAi = false } = {}) {
+    const room = this.getPartyRoomByCode(rawCode);
+    if (!room) {
+      return { ok: false, reason: 'room-not-found', message: '해당 방 코드를 찾을 수 없습니다.' };
+    }
+    if (!playerId) {
+      return { ok: false, reason: 'missing-player', message: '플레이어 정보가 필요합니다.' };
+    }
+
+    const cleanName = (name || '').trim() || `상인 ${room.game.players.length + 1}`;
+    const existingPlayer = room.game.players.find((p) => p.id === playerId);
+    if (existingPlayer) {
+      if (cleanName && room.game.status === 'lobby') {
+        existingPlayer.name = cleanName;
+      }
+      room.sessions.set(playerId, { name: existingPlayer.name, socketId });
+      room.lastActivityAt = Date.now();
+      return { ok: true, room, reconnected: true };
+    }
+
+    if (room.game.status !== 'lobby') {
+      return { ok: false, reason: 'already-started', message: '이미 진행 중인 게임입니다.' };
+    }
+
+    const limit = room.maxPlayers || MAX_PARTY_PLAYERS;
+    if (room.game.players.length >= limit) {
+      return {
+        ok: false,
+        reason: 'room-full',
+        message: `최대 ${limit}명(호스트 + ${limit - 1}명)까지 참가할 수 있습니다.`,
+      };
+    }
+
+    const addedOk = room.game.addPlayer(playerId, cleanName);
+    if (!addedOk) {
+      return { ok: false, reason: 'join-failed', message: '방 참가에 실패했습니다.' };
+    }
+
+    const added = room.game.players.find((p) => p.id === playerId);
+    if (added) added.isAi = Boolean(isAi);
+    room.sessions.set(playerId, { name: cleanName, socketId });
+    room.lastActivityAt = Date.now();
+    return { ok: true, room, reconnected: false };
+  }
+
+  /**
+   * Allows the party host to fill an open lobby slot (up to 4 total) with a Guild AI merchant.
+   */
+  addAiPlayerToPartyRoom(rawCode, requesterId) {
+    const room = this.getPartyRoomByCode(rawCode);
+    if (!room) {
+      return { ok: false, reason: 'room-not-found', message: '파티 방을 찾을 수 없습니다.' };
+    }
+    if (room.hostId && requesterId && room.hostId !== requesterId) {
+      return { ok: false, reason: 'not-host', message: '방장만 AI 상인을 추가할 수 있습니다.' };
+    }
+    if (room.game.status !== 'lobby') {
+      return { ok: false, reason: 'already-started', message: '이미 진행 중인 게임입니다.' };
+    }
+    const limit = room.maxPlayers || MAX_PARTY_PLAYERS;
+    if (room.game.players.length >= limit) {
+      return { ok: false, reason: 'room-full', message: `이미 최대 ${limit}명이 모두 참가했습니다.` };
+    }
+
+    const existingAiCount = room.game.players.filter((p) => p.isAi).length;
+    const aiId = `party_ai_${existingAiCount + 1}_${Date.now().toString(36).slice(-3)}`;
+    const aiName = PARTY_AI_NAMES[existingAiCount % PARTY_AI_NAMES.length];
+    return this.joinPartyRoom(room.roomCode, {
+      playerId: aiId,
+      name: aiName,
+      socketId: null,
+      isAi: true,
+    });
+  }
+
+  /**
+   * Starts a party room match (requires 2..4 players; only host may trigger when hostId is set).
+   */
+  startPartyRoom(rawCode, requesterId) {
+    const room = this.getPartyRoomByCode(rawCode);
+    if (!room) {
+      return { ok: false, reason: 'room-not-found', message: '파티 방을 찾을 수 없습니다.' };
+    }
+    if (room.hostId && requesterId && room.hostId !== requesterId) {
+      return { ok: false, reason: 'not-host', message: '방장만 게임을 시작할 수 있습니다.' };
+    }
+    if (room.game.status !== 'lobby') {
+      return { ok: false, reason: 'already-started', message: '이미 시작된 게임입니다.' };
+    }
+    this.clearTurnTimers(room);
+    const started = room.game.start();
+    if (!started) {
+      return {
+        ok: false,
+        reason: 'insufficient-players',
+        message: '게임을 시작하려면 최소 2명(최대 4명)의 상인이 필요합니다.',
+      };
+    }
+    room.lastActivityAt = Date.now();
+    return { ok: true, room };
   }
 
   clearAiTimer(room) {
@@ -229,14 +408,19 @@ export class RoomManager {
   }
 
   /**
-   * Removes idle abandoned sandbox rooms so long-running servers never leak memory.
+   * Removes idle abandoned sandbox/party rooms so long-running k8s servers never leak memory.
    */
-  pruneStaleSandboxRooms(activeRoomIds = new Set(), maxIdleMs = 15 * 60 * 1000) {
+  pruneStaleSandboxRooms(
+    activeRoomIds = new Set(),
+    maxIdleMs = 15 * 60 * 1000,
+    maxPartyIdleMs = 2 * 60 * 60 * 1000
+  ) {
     const now = Date.now();
     for (const [roomId, room] of this.rooms.entries()) {
-      if (room.kind !== 'sandbox') continue;
+      if (room.kind !== 'sandbox' && room.kind !== 'party') continue;
       if (activeRoomIds.has(roomId)) continue;
-      if (now - room.lastActivityAt > maxIdleMs) {
+      const threshold = room.kind === 'party' ? maxPartyIdleMs : maxIdleMs;
+      if (now - room.lastActivityAt > threshold) {
         this.clearTurnTimers(room);
         this.clearIdlePauseTimer(room);
         this.rooms.delete(roomId);
@@ -244,3 +428,4 @@ export class RoomManager {
     }
   }
 }
+
